@@ -183,7 +183,7 @@ var roleHarvester = {
     numHarvesters(room) {
         let numHarvesters = 0;
         const sources = room.find(FIND_SOURCES);
-        numHarvesters += sources.length * 3;
+        numHarvesters += sources.length * 2;
         return numHarvesters;
     }
 };

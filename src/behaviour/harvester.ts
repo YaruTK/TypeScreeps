@@ -169,7 +169,7 @@ export default roleHarvester = {
         let numHarvesters: number = 0;
         const sources = room.find(FIND_SOURCES);
 
-        numHarvesters += sources.length * 3;
+        numHarvesters += sources.length * 2;
 
         return numHarvesters;
     }
