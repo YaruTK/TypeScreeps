@@ -1,6 +1,7 @@
 enum MemoryRole {
     HARVESTER = 'harvester',
-    UPGRADER = 'upgrader'
+    UPGRADER = 'upgrader',
+    BUILDER = 'builder'
 }
 
 export default MemoryRole;

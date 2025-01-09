@@ -1,47 +1,52 @@
 import { ErrorMapper } from "utils/ErrorMapper";
 
-import roleHarvester from './behaviour/harvester';
-import roleBuilder from './behaviour/builder';
-import roleUpgrader from './behaviour/upgrader';
-import memoryCreep from 'memory.creep';
-import * as _ from 'lodash';
+import MemoryRole from "./behaviour/memory.creep";
+import roleBuilder from "./behaviour/builder";
+import roleHarvester from "./behaviour/harvester";
+import roleUpgrader from "./behaviour/upgrader";
+import spawnCreeps from "./scripts/spawn.creep";
+import structureTower from "./structures/tower";
 
+// import * as _ from 'lodash';
 
-export function loop() : void {
-
-
-
-  for (const name in Memory.creeps) {
-    if (!Game.creeps[name]) {
-      delete Memory.creeps[name];
-      console.log('Clearing non-existing creep memory:', name)
+export function loop() {
+    for (const name in Memory.creeps) {
+        if (!Game.creeps[name]) {
+            delete Memory.creeps[name];
+            console.log("Clearing non-existing creep memory:", name);
+        }
     }
 
-  const harvesters :(Creep)[] = _.filter(Game.creeps, (creep: Creep) : boolean => creep.memory.role == memoryCreep.HARVESTER);
-    if (harvesters.length < 2) {
-      const newName: string = 'Harvester' + Game.time;
-      console.log('Spawning new harvester' + newName)
-      Game.spawns['Spawn1'].spawnCreep([WORK, CARRY, MOVE], newName, {memory: {role: memoryCreep.HARVESTER}});
+    const myStructureKeys = Object.keys(Game.structures);
+    const myStructures: Structure<StructureConstant>[] = myStructureKeys.map(key => Game.structures[key]);
+
+    const spawns: StructureSpawn[] = [];
+    const towers: StructureTower[] = [];
+
+    for (const struct of myStructures) {
+        if (struct.structureType === STRUCTURE_SPAWN) {
+            spawns.push(struct as StructureSpawn);
+        }
+        if (struct.structureType === STRUCTURE_TOWER) {
+            towers.push(struct as StructureTower);
+        }
     }
-/*
-    if (Game.spawns['Spawn1'].spawning) {
-      const spawningCreep = Game.creeps.[Game.spawns['Spawn1'].spawning.name];
-      Game.spawns['Spawn1'].room.visual.text(
-        text:
-      )
-    }
-*/
+
+    spawns.forEach(spawn => {
+        spawnCreeps.spawn(spawn);
+    });
+    structureTower.run(towers);
+
     for (const name in Game.creeps) {
-    const creep = Game.creeps[name];
-    if(creep.memory.role == 'harvester') {
-        roleHarvester.run(creep);
+        const creep = Game.creeps[name];
+        if (creep.memory.role === MemoryRole.HARVESTER.valueOf()) {
+            roleHarvester.run(creep);
+        }
+        if (creep.memory.role === MemoryRole.BUILDER.valueOf()) {
+            roleBuilder.run(creep);
+        }
+        if (creep.memory.role === MemoryRole.UPGRADER.valueOf()) {
+            roleUpgrader.run(creep);
+        }
     }
-    if(creep.memory.role == 'upgrader') {
-        roleUpgrader.run(creep);
-    }
-    if(creep.memory.role == 'builder') {
-        roleBuilder.run(creep);
-    }
-}
-}
 }

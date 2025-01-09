@@ -2,96 +2,233 @@
 
 Object.defineProperty(exports, '__esModule', { value: true });
 
-var roleHarvester = {
-    /**
-     * @param {Creep} creep
-     */
-    run: function (creep) {
-        if (creep.store.getFreeCapacity() > 0) {
-            const sources = creep.room.find(FIND_SOURCES);
-            if (creep.harvest(sources[0]) == ERR_NOT_IN_RANGE) {
-                creep.moveTo(sources[0], { visualizePathStyle: { stroke: '#ffaa00' } });
-            }
-        }
-        else {
-            const targets = creep.room.find(FIND_STRUCTURES, {
-                filter: (structure) => {
-                    return (structure.structureType == STRUCTURE_EXTENSION || structure.structureType == STRUCTURE_SPAWN) &&
-                        structure.store.getFreeCapacity(RESOURCE_ENERGY) > 0;
-                }
-            });
-            if (targets.length > 0) {
-                if (creep.transfer(targets[0], RESOURCE_ENERGY) == ERR_NOT_IN_RANGE) {
-                    creep.moveTo(targets[0], { visualizePathStyle: { stroke: '#ffffff' } });
-                }
-            }
-        }
-    }
-};
-
-var roleBuilder = {
-    run(creep) {
-        if (creep.memory.building && creep.store[RESOURCE_ENERGY] == 0) {
-            creep.memory.building = false;
-            creep.say('🔄 harvest');
-        }
-        if (!creep.memory.building && creep.store.getFreeCapacity() == 0) {
-            creep.memory.building = true;
-            creep.say('🚧 build');
-        }
-        if (creep.memory.building) {
-            const targets = creep.room.find(FIND_CONSTRUCTION_SITES);
-            if (targets.length) {
-                if (creep.build(targets[0]) == ERR_NOT_IN_RANGE) {
-                    creep.moveTo(targets[0], { visualizePathStyle: { stroke: '#ffffff' } });
-                }
-            }
-        }
-        else {
-            const sources = creep.room.find(FIND_SOURCES);
-            if (creep.harvest(sources[0]) == ERR_NOT_IN_RANGE) {
-                creep.moveTo(sources[0], { visualizePathStyle: { stroke: '#ffaa00' } });
-            }
-        }
-    }
-};
-
-var roleUpgrader = {
-    /**
-     * @param {Creep} creep
-     */
-    run(creep) {
-        if (creep.memory.upgrading && creep.store[RESOURCE_ENERGY] == 0) {
-            creep.memory.upgrading = false;
-            creep.say('🔄 harvest');
-        }
-        if (!creep.memory.upgrading && creep.store.getFreeCapacity() == 0) {
-            creep.memory.upgrading = true;
-            creep.say('⚡ upgrade');
-        }
-        if (creep.memory.upgrading) {
-            const controller = creep.room.controller;
-            if (controller) {
-                if (creep.upgradeController(controller) == ERR_NOT_IN_RANGE) {
-                    creep.moveTo(controller, { visualizePathStyle: { stroke: '#ffffff' } });
-                }
-            }
-        }
-        else {
-            var sources = creep.room.find(FIND_SOURCES);
-            if (creep.harvest(sources[0]) == ERR_NOT_IN_RANGE) {
-                creep.moveTo(sources[0], { visualizePathStyle: { stroke: '#ffaa00' } });
-            }
-        }
-    }
-};
-
 var MemoryRole;
 (function (MemoryRole) {
     MemoryRole["HARVESTER"] = "harvester";
     MemoryRole["UPGRADER"] = "upgrader";
+    MemoryRole["BUILDER"] = "builder";
 })(MemoryRole || (MemoryRole = {}));
-var memoryCreep = MemoryRole;
+var MemoryRole$1 = MemoryRole;
+
+var roleBuilder = {
+    run(creep) {
+        if (creep.memory.building && creep.store[RESOURCE_ENERGY] === 0) {
+            creep.memory.building = false;
+            creep.say("🔄 harvest");
+        }
+        if (!creep.memory.building && creep.store.getFreeCapacity() === 0) {
+            creep.memory.building = true;
+            creep.say("🚧 build");
+        }
+        if (creep.memory.building) {
+            const targets = creep.room.find(FIND_CONSTRUCTION_SITES);
+            if (targets.length) {
+                if (creep.build(targets[0]) === ERR_NOT_IN_RANGE) {
+                    creep.moveTo(targets[0], { visualizePathStyle: { stroke: "#ffffff" } });
+                }
+            }
+        }
+        else {
+            const sources = creep.room.find(FIND_SOURCES);
+            if (creep.harvest(sources[0]) === ERR_NOT_IN_RANGE) {
+                creep.moveTo(sources[0], { visualizePathStyle: { stroke: "#ffaa00" } });
+            }
+        }
+    },
+    numBuilders(room) {
+        let numBuilders = 0;
+        const maxBuilders = 5;
+        const targets = room.find(FIND_CONSTRUCTION_SITES);
+        numBuilders += Math.ceil(targets.length / 5);
+        let accumulatedConstructionCost = 0;
+        targets.forEach(target => {
+            accumulatedConstructionCost += target.progressTotal - target.progress;
+        });
+        numBuilders += Math.floor(accumulatedConstructionCost / 1500);
+        return numBuilders <= maxBuilders ? numBuilders : maxBuilders;
+    }
+};
+
+var roleHarvester = {
+    run(creep) {
+        var _a;
+        function getSourceInstance(target) {
+            const result = Game.getObjectById(target);
+            if (result instanceof Source) {
+                return result;
+            }
+            return null;
+        }
+        function getStructureInstance(target) {
+            if (target === undefined) {
+                target = "";
+            }
+            const result = Game.getObjectById(target);
+            if (result instanceof StructureExtension) {
+                return result;
+            }
+            if (result instanceof StructureSpawn) {
+                return result;
+            }
+            if (result instanceof StructureTower) {
+                return result;
+            }
+            if (result instanceof StructureStorage) {
+                return result;
+            }
+            if (result instanceof StructureContainer) {
+                return result;
+            }
+            return null;
+        }
+        function findSource() {
+            const sources = creep.room.find(FIND_SOURCES);
+            const sourceIndex = Math.floor(Math.random() * sources.length);
+            return sources[sourceIndex].id;
+        }
+        function findTarget() {
+            const targets = creep.room.find(FIND_STRUCTURES, {
+                filter: structure => {
+                    return ((structure.structureType === STRUCTURE_EXTENSION ||
+                        structure.structureType === STRUCTURE_SPAWN ||
+                        structure.structureType === STRUCTURE_TOWER ||
+                        structure.structureType === STRUCTURE_STORAGE ||
+                        structure.structureType === STRUCTURE_CONTAINER) &&
+                        structure.store.getFreeCapacity(RESOURCE_ENERGY) > 0);
+                }
+            });
+            const targetsExtentions = [];
+            targets.forEach(target => {
+                if (target.structureType === STRUCTURE_EXTENSION) {
+                    targetsExtentions.push(target);
+                }
+            });
+            const targetSpawns = [];
+            targets.forEach(target => {
+                if (target.structureType === STRUCTURE_SPAWN) {
+                    targetSpawns.push(target);
+                }
+            });
+            const targetTowers = [];
+            targets.forEach(target => {
+                if (target.structureType === STRUCTURE_TOWER) {
+                    targetTowers.push(target);
+                }
+            });
+            const targetStorages = [];
+            targets.forEach(target => {
+                if (target.structureType === STRUCTURE_STORAGE) {
+                    targetStorages.push(target);
+                }
+            });
+            const targetContainers = [];
+            targetContainers.forEach(target => {
+                targetContainers.push(target);
+            });
+            const orderedTargets = [targetsExtentions, targetSpawns, targetTowers, targetStorages, targetContainers];
+            let targetIndex = 0;
+            let targetId = "";
+            // eslint-disable-next-line @typescript-eslint/prefer-for-of
+            for (let i = 0; i < orderedTargets.length; i++) {
+                if (orderedTargets[i].length > 0) {
+                    targetIndex = Math.floor(Math.random() * orderedTargets[i].length);
+                    targetId = orderedTargets[i][targetIndex].id;
+                    break;
+                }
+            }
+            return targetId;
+        }
+        if (!creep.memory.harvesting && creep.store[RESOURCE_ENERGY] === 0) {
+            creep.memory.harvesting = true;
+            creep.say("🔄 harvest");
+        }
+        if (creep.memory.harvesting && creep.store.getFreeCapacity() === 0) {
+            creep.memory.harvesting = false;
+            creep.say("🚿 storing");
+        }
+        if (creep.memory.harvesting) {
+            // harvest
+            if (!creep.memory.source) {
+                creep.memory.source = findSource();
+            }
+            const target = getSourceInstance(creep.memory.source);
+            if (target) {
+                if (creep.harvest(target) === ERR_NOT_IN_RANGE) {
+                    creep.moveTo(target, { visualizePathStyle: { stroke: "#ffaa00" } });
+                }
+            }
+        }
+        else {
+            let target = getStructureInstance(creep.memory.target);
+            // is a target in memory and valid
+            if (!target || ((_a = getStructureInstance(creep.memory.target)) === null || _a === void 0 ? void 0 : _a.store.getFreeCapacity()) === 0) {
+                creep.memory.target = findTarget();
+                target = getStructureInstance(creep.memory.target);
+            }
+            const potentialTarget = getStructureInstance(findTarget());
+            if (((target === null || target === void 0 ? void 0 : target.structureType) === STRUCTURE_STORAGE || (target === null || target === void 0 ? void 0 : target.structureType) === STRUCTURE_TOWER) &&
+                potentialTarget &&
+                potentialTarget.structureType !== STRUCTURE_STORAGE &&
+                potentialTarget.structureType !== STRUCTURE_TOWER) {
+                target = potentialTarget;
+                creep.memory.target = target.id;
+            }
+            if (target) {
+                if (creep.transfer(target, RESOURCE_ENERGY) === ERR_NOT_IN_RANGE) {
+                    creep.moveTo(target, { visualizePathStyle: { stroke: "#ffffff" } });
+                }
+            }
+        }
+    },
+    numHarvesters(room) {
+        let numHarvesters = 0;
+        const sources = room.find(FIND_SOURCES);
+        numHarvesters += sources.length * 3;
+        return numHarvesters;
+    }
+};
+
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+var roleUpgrader = {
+    run(creep) {
+        if (creep.memory.upgrading && creep.store[RESOURCE_ENERGY] === 0) {
+            creep.memory.upgrading = false;
+            creep.say("🔄 harvest");
+        }
+        if (!creep.memory.upgrading && creep.store.getFreeCapacity() === 0) {
+            creep.memory.upgrading = true;
+            creep.say("⚡ upgrade");
+        }
+        if (creep.memory.upgrading) {
+            const controller = creep.room.controller;
+            if (controller) {
+                if (creep.upgradeController(controller) === ERR_NOT_IN_RANGE) {
+                    creep.moveTo(controller, { visualizePathStyle: { stroke: "#ffffff" } });
+                }
+            }
+        }
+        else {
+            const sources = creep.room.find(FIND_SOURCES);
+            if (creep.harvest(sources[0]) === ERR_NOT_IN_RANGE) {
+                creep.moveTo(sources[0], { visualizePathStyle: { stroke: "#ffaa00" } });
+            }
+        }
+    },
+    numUpgraders(room, numHarvesters) {
+        // TODO: make based on an actual provided creep count
+        const maxUpgraders = 5;
+        let numUpgraders = maxUpgraders;
+        let creepsInRoomTotal = 0;
+        for (const creepsKey in Game.creeps) {
+            if (Game.creeps[creepsKey].room === room) {
+                creepsInRoomTotal++;
+            }
+        }
+        numUpgraders -= Math.floor((creepsInRoomTotal - numHarvesters) / 2);
+        numUpgraders = Math.max(numUpgraders, 0);
+        return Math.min(maxUpgraders, numUpgraders);
+    }
+};
 
 var commonjsGlobal = typeof globalThis !== 'undefined' ? globalThis : typeof window !== 'undefined' ? window : typeof global !== 'undefined' ? global : typeof self !== 'undefined' ? self : {};
 
@@ -12438,37 +12575,93 @@ var lodash = {exports: {}};
 }.call(commonjsGlobal));
 }(lodash, lodash.exports));
 
+// eslint-disable-next-line import/no-unresolved
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+var spawnCreeps = {
+    spawn(spawn) {
+        const harvesters = lodash.exports.filter(Game.creeps, creep => creep.memory.role === MemoryRole$1.HARVESTER.valueOf());
+        // console.log('Harvesters: ' + harvesters.length); //TODO: make a debug mode used to decide if logged
+        const builders = lodash.exports.filter(Game.creeps, creep => creep.memory.role === MemoryRole$1.BUILDER.valueOf());
+        // console.log('Builders: ' + builders.length);
+        const upgraders = lodash.exports.filter(Game.creeps, creep => creep.memory.role === MemoryRole$1.UPGRADER.valueOf());
+        // console.log('Upgraders: ' + upgraders.length);
+        if (harvesters.length < roleHarvester.numHarvesters(spawn.room)) {
+            const newName = "Harvester" + Game.time;
+            console.log("Spawning new harvester: " + newName);
+            spawn.spawnCreep([WORK, CARRY, MOVE], newName, { memory: { role: MemoryRole$1.HARVESTER } });
+        }
+        else if (builders.length < roleBuilder.numBuilders(spawn.room)) {
+            const newName = "Builder" + Game.time;
+            console.log("Spawning new builder: " + newName);
+            spawn.spawnCreep([WORK, CARRY, MOVE], newName, { memory: { role: MemoryRole$1.BUILDER } });
+        }
+        else if (upgraders.length < roleUpgrader.numUpgraders(spawn.room, roleHarvester.numHarvesters(spawn.room))) {
+            const newName = "Upgrader" + Game.time;
+            console.log("Spawning new upgrader: " + newName);
+            spawn.spawnCreep([WORK, CARRY, MOVE], newName, { memory: { role: MemoryRole$1.UPGRADER } });
+        }
+        if (spawn.spawning) {
+            const spawningCreep = Game.creeps[spawn.spawning.name];
+            spawn.room.visual.text("🛠️" + spawningCreep.memory.role, spawn.pos.x + 1, spawn.pos.y, {
+                align: "left",
+                opacity: 0.8
+            });
+        }
+    }
+};
+
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+var structureTower = {
+    run(towers) {
+        towers.forEach(tower => {
+            const closestDamagedStructure = tower.pos.findClosestByRange(FIND_STRUCTURES, {
+                filter: structure => structure.hits < structure.hitsMax
+            });
+            if (closestDamagedStructure) {
+                tower.repair(closestDamagedStructure);
+            }
+            const closestHostile = tower.pos.findClosestByRange(FIND_HOSTILE_CREEPS);
+            if (closestHostile) {
+                tower.attack(closestHostile);
+            }
+        });
+    }
+};
+
+// import * as _ from 'lodash';
 function loop() {
     for (const name in Memory.creeps) {
         if (!Game.creeps[name]) {
             delete Memory.creeps[name];
-            console.log('Clearing non-existing creep memory:', name);
+            console.log("Clearing non-existing creep memory:", name);
         }
-        const harvesters = lodash.exports.filter(Game.creeps, (creep) => creep.memory.role == memoryCreep.HARVESTER);
-        if (harvesters.length < 2) {
-            const newName = 'Harvester' + Game.time;
-            console.log('Spawning new harvester' + newName);
-            Game.spawns['Spawn1'].spawnCreep([WORK, CARRY, MOVE], newName, { memory: { role: memoryCreep.HARVESTER } });
+    }
+    const myStructureKeys = Object.keys(Game.structures);
+    const myStructures = myStructureKeys.map(key => Game.structures[key]);
+    const spawns = [];
+    const towers = [];
+    for (const struct of myStructures) {
+        if (struct.structureType === STRUCTURE_SPAWN) {
+            spawns.push(struct);
         }
-        /*
-            if (Game.spawns['Spawn1'].spawning) {
-              const spawningCreep = Game.creeps.[Game.spawns['Spawn1'].spawning.name];
-              Game.spawns['Spawn1'].room.visual.text(
-                text:
-              )
-            }
-        */
-        for (const name in Game.creeps) {
-            const creep = Game.creeps[name];
-            if (creep.memory.role == 'harvester') {
-                roleHarvester.run(creep);
-            }
-            if (creep.memory.role == 'upgrader') {
-                roleUpgrader.run(creep);
-            }
-            if (creep.memory.role == 'builder') {
-                roleBuilder.run(creep);
-            }
+        if (struct.structureType === STRUCTURE_TOWER) {
+            towers.push(struct);
+        }
+    }
+    spawns.forEach(spawn => {
+        spawnCreeps.spawn(spawn);
+    });
+    structureTower.run(towers);
+    for (const name in Game.creeps) {
+        const creep = Game.creeps[name];
+        if (creep.memory.role === MemoryRole$1.HARVESTER.valueOf()) {
+            roleHarvester.run(creep);
+        }
+        if (creep.memory.role === MemoryRole$1.BUILDER.valueOf()) {
+            roleBuilder.run(creep);
+        }
+        if (creep.memory.role === MemoryRole$1.UPGRADER.valueOf()) {
+            roleUpgrader.run(creep);
         }
     }
 }
