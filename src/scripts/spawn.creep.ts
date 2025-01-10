@@ -1,44 +1,83 @@
-// eslint-disable-next-line import/no-unresolved
 import * as _ from "lodash";
-import memoryCreep from "../behaviour/memory.creep";
-import roleBuilder from "../behaviour/builder";
-import roleHarvester from "../behaviour/harvester";
-import roleUpgrader from "../behaviour/upgrader";
+import memoryCreep from "./memory.creep";
+import roleMiner from "../behaviour/miner";
 
 let spawnCreeps: {
     spawn(spawn: StructureSpawn): void;
 };
 
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
 export default spawnCreeps = {
     spawn(spawn) {
-        const harvesters = _.filter(Game.creeps, creep => creep.memory.role === memoryCreep.HARVESTER.valueOf());
-        // console.log('Harvesters: ' + harvesters.length); //TODO: make a debug mode used to decide if logged
-        const builders = _.filter(Game.creeps, creep => creep.memory.role === memoryCreep.BUILDER.valueOf());
-        // console.log('Builders: ' + builders.length);
-        const upgraders = _.filter(Game.creeps, creep => creep.memory.role === memoryCreep.UPGRADER.valueOf());
-        // console.log('Upgraders: ' + upgraders.length);
+        /**
+         * Add a creep to a source in memory.
+         * @param {Creep} creep - The creep to assign.
+         * @param {Source} source - The source to assign the creep to.
+         */
+        function addCreepToSource(creep: Creep, source: Source): void {
+            const roomMemory = Memory.rooms[creep.room.name];
+            if (!roomMemory) {
+                console.log(`[${creep.name}] Room memory is not initialized.`);
+                return;
+            }
 
-        if (harvesters.length < roleHarvester.numHarvesters(spawn.room)) {
-            const newName = "Harvester" + Game.time;
-            console.log("Spawning new harvester: " + newName);
-            spawn.spawnCreep([WORK, CARRY, MOVE], newName, { memory: { role: memoryCreep.HARVESTER } });
-        } else if (builders.length < roleBuilder.numBuilders(spawn.room)) {
-            const newName = "Builder" + Game.time;
-            console.log("Spawning new builder: " + newName);
-            spawn.spawnCreep([WORK, CARRY, MOVE], newName, { memory: { role: memoryCreep.BUILDER } });
-        } else if (upgraders.length < roleUpgrader.numUpgraders(spawn.room, roleHarvester.numHarvesters(spawn.room))) {
-            const newName = "Upgrader" + Game.time;
-            console.log("Spawning new upgrader: " + newName);
-            spawn.spawnCreep([WORK, CARRY, MOVE], newName, { memory: { role: memoryCreep.UPGRADER } });
+            const sourceMemory = roomMemory.sources[source.id];
+            if (!sourceMemory) {
+                console.log(`[${creep.name}] Source ${source.id} is not in room memory.`);
+                return;
+            }
+
+            // Assign creep to the source
+            sourceMemory.creeps.push(creep.name);
+            creep.memory.target = source.id;
+            console.log(`[${creep.name}] Assigned to source: ${source.id}`);
         }
 
+        // Find all miners in the room
+        const miners = _.filter(Game.creeps, creep => creep.memory.role === memoryCreep.MINER);
+
+        // Determine the required number of miners
+        const requiredMiners = roleMiner.numMiners(spawn.room);
+
+        // Spawn miners if needed
+        if (miners.length < requiredMiners) {
+            const newName = "Miner" + Game.time;
+            console.log(`Spawning new miner: ${newName}`);
+
+            // Find a source with vacancies
+            const roomMemory = Memory.rooms[spawn.room.name];
+            const availableSource = Object.values(roomMemory.sources)
+                .find(source => source.vacancies > source.creeps.length);
+
+            if (availableSource) {
+                const spawnResult = spawn.spawnCreep([WORK, WORK, MOVE], newName, {
+                    memory: {
+                        id: newName,
+                        role: memoryCreep.MINER },
+                });
+
+                if (spawnResult === OK) {
+                    console.log(`[${newName}] Successfully spawned.`);
+                    const newCreep = Game.creeps[newName];
+                    if (newCreep) {
+                        addCreepToSource(newCreep, Game.getObjectById(availableSource.id)!);
+                    }
+                } else {
+                    console.log(`[${newName}] Spawn failed with error: ${spawnResult}`);
+                }
+            } else {
+                console.log("No available sources with vacancies for new miners.");
+            }
+        }
+
+        // Display spawning progress visually
         if (spawn.spawning) {
             const spawningCreep = Game.creeps[spawn.spawning.name];
-            spawn.room.visual.text("🛠️" + spawningCreep.memory.role, spawn.pos.x + 1, spawn.pos.y, {
-                align: "left",
-                opacity: 0.8
-            });
+            spawn.room.visual.text(
+                `🛠️ ${spawningCreep.memory.role}`,
+                spawn.pos.x + 1,
+                spawn.pos.y,
+                { align: "left", opacity: 0.8 }
+            );
         }
     }
 };

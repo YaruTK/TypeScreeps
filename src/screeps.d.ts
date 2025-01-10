@@ -1,12 +1,27 @@
 declare global {
     interface CreepMemory {
-        [name: string]: any;
+        id: string;
         role: string;
-        building?: boolean;
-        upgrading?: boolean;
+        target?: Id<Source | Structure>;
     }
-    interface Memory {
-        creeps: {[name: string]: CreepMemory}
+
+    interface SourceMemory {
+        id: Id<Source>;
+        vacancies: number;
+        creeps: string[];
+    }
+
+    interface StructureMemory {
+        id: Id<Structure>;
+        type: string;
+        creeps: string[];
+    }
+
+    interface RoomMemory {
+        sources: { [id: string]: SourceMemory };
+        structures: { [id: string]: StructureMemory };
+        creeps: { [id: string]: CreepMemory };
+        lastAnalyzed?: number; // Timestamp of the last analysis
     }
 }
 
