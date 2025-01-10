@@ -6,7 +6,7 @@ export class RoomMemoryManager {
             structures: {},
             creeps: {},
             lastAnalyzed: 0,
-            initialized: true,
+            initialized: false,
             spawnQueue: [],
         };
 

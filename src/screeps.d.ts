@@ -26,7 +26,6 @@ declare global {
         lastAnalyzed?: number; // Timestamp of the last analysis
         initialized: boolean;
         spawnQueue: any[];
-
     }
 }
 
