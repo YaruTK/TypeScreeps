@@ -6,6 +6,8 @@ export class RoomMemoryManager {
             structures: {},
             creeps: {},
             lastAnalyzed: 0,
+            initialized: true,
+            spawnQueue: [],
         };
 
         console.log(`Initialized memory for room: ${room.name}`);
@@ -29,6 +31,8 @@ export class RoomMemoryManager {
                 creeps: [],
             };
         });
+        // Set it initialized
+        Memory.rooms[room.name].initialized = true;
     }
 
     static addCreepToRoom(room: Room, creep: Creep): void {
@@ -38,10 +42,22 @@ export class RoomMemoryManager {
             role: creep.memory.role,
             target: creep.memory.target,
         };
-
-        // Assign the creep to a target if specified
+        // Assign the creep to a target if specified and not already assigned
         if (creep.memory.target) {
-            this.assignCreepToTarget(room, creep.name, creep.memory.target);
+            const roomMemory = Memory.rooms[room.name];
+
+            // Check if the creep is already assigned to the target
+            const isAlreadyAssigned = Object.values(roomMemory.sources).some(source =>
+                source.creeps.includes(creep.name)
+            ) || Object.values(roomMemory.structures).some(structure =>
+                structure.creeps.includes(creep.name)
+            );
+
+            if (!isAlreadyAssigned) {
+                this.assignCreepToTarget(room, creep.name, creep.memory.target);
+            } else {
+                console.log(`[${creep.name}] Already assigned to target: ${creep.memory.target}`);
+            }
         }
     }
 
@@ -80,6 +96,13 @@ export class RoomMemoryManager {
             if (!Game.creeps[creepName]) {
                 console.log(`Cleaning up expired creep: ${creepName}`);
                 this.removeCreepFromRoom(room, creepName);
+            }
+        }
+
+        // Cleanup expired workers from creeps too
+        for(const name in Memory.creeps) {
+            if(!Game.creeps[name]) {
+                delete Memory.creeps[name];
             }
         }
     }

@@ -3,6 +3,8 @@ declare global {
         id: string;
         role: string;
         target?: Id<Source | Structure>;
+        mining?: boolean;
+        pickingUp?: boolean;
     }
 
     interface SourceMemory {
@@ -22,6 +24,9 @@ declare global {
         structures: { [id: string]: StructureMemory };
         creeps: { [id: string]: CreepMemory };
         lastAnalyzed?: number; // Timestamp of the last analysis
+        initialized: boolean;
+        spawnQueue: any[];
+
     }
 }
 

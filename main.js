@@ -2,6 +2,59 @@
 
 Object.defineProperty(exports, '__esModule', { value: true });
 
+var roleMiner = {
+    run(creep) {
+        // Ensure the creep has a target assigned
+        if (!creep.memory.target) {
+            // Assign the creep to a source with vacancies
+            const roomMemory = Memory.rooms[creep.room.name];
+            const availableSource = Object.values(roomMemory.sources).find(source => {
+                return source.vacancies > source.creeps.length;
+            });
+            if (availableSource) {
+                creep.memory.target = availableSource.id;
+                roomMemory.sources[availableSource.id].creeps.push(creep.name);
+                console.log(`[${creep.name}] Assigned to source: ${availableSource.id}`);
+            }
+            else {
+                console.log(`[${creep.name}] No available sources with vacancies.`);
+                return;
+            }
+        }
+        // Mining logic
+        if (creep.memory.target) {
+            const target = Game.getObjectById(creep.memory.target);
+            if (!target) {
+                console.log(`[${creep.name}] Invalid target: ${creep.memory.target}`);
+                delete creep.memory.target; // Clear invalid target
+                return;
+            }
+            // Move to the assigned source and harvest
+            const harvestResult = creep.harvest(target);
+            if (harvestResult === ERR_NOT_IN_RANGE) {
+                creep.moveTo(target, { visualizePathStyle: { stroke: "#ffaa00" } });
+                console.log(`[${creep.name}] Moving to source: ${target.id}`);
+            }
+            else if (harvestResult === OK) {
+                // Mining is successful; log debug info
+                console.log(`[${creep.name}] Mining at source: ${target.id}`);
+            }
+            else {
+                console.log(`[${creep.name}] Harvest error: ${harvestResult}`);
+            }
+        }
+    },
+    // Calculate the number of miners needed based on sources in the room
+    numMiners(room) {
+        const roomMemory = Memory.rooms[room.name];
+        if (roomMemory) {
+            const totalVacancies = Object.values(roomMemory.sources).reduce((sum, source) => sum + Math.max(0, source.vacancies - source.creeps.length), 0);
+            return totalVacancies;
+        }
+        return 0;
+    },
+};
+
 var commonjsGlobal = typeof globalThis !== 'undefined' ? globalThis : typeof window !== 'undefined' ? window : typeof global !== 'undefined' ? global : typeof self !== 'undefined' ? self : {};
 
 var lodash = {exports: {}};
@@ -12353,61 +12406,9 @@ var MemoryRole;
     MemoryRole["UPGRADER"] = "upgrader";
     MemoryRole["BUILDER"] = "builder";
     MemoryRole["MINER"] = "miner";
+    MemoryRole["HAULER"] = "hauler";
 })(MemoryRole || (MemoryRole = {}));
 var memoryCreep = MemoryRole;
-
-var roleMiner = {
-    run(creep) {
-        // Ensure the creep has a target assigned
-        if (!creep.memory.target) {
-            // Assign the creep to a source with vacancies
-            const roomMemory = Memory.rooms[creep.room.name];
-            const availableSource = Object.values(roomMemory.sources).find(source => {
-                return source.vacancies > source.creeps.length;
-            });
-            if (availableSource) {
-                creep.memory.target = availableSource.id;
-                roomMemory.sources[availableSource.id].creeps.push(creep.name);
-                console.log(`[${creep.name}] Assigned to source: ${availableSource.id}`);
-            }
-            else {
-                console.log(`[${creep.name}] No available sources with vacancies.`);
-                return;
-            }
-        }
-        // Mining logic
-        if (creep.memory.target) {
-            const target = Game.getObjectById(creep.memory.target);
-            if (!target) {
-                console.log(`[${creep.name}] Invalid target: ${creep.memory.target}`);
-                delete creep.memory.target; // Clear invalid target
-                return;
-            }
-            // Move to the assigned source and harvest
-            const harvestResult = creep.harvest(target);
-            if (harvestResult === ERR_NOT_IN_RANGE) {
-                creep.moveTo(target, { visualizePathStyle: { stroke: "#ffaa00" } });
-                console.log(`[${creep.name}] Moving to source: ${target.id}`);
-            }
-            else if (harvestResult === OK) {
-                // Mining is successful; log debug info
-                console.log(`[${creep.name}] Mining at source: ${target.id}`);
-            }
-            else {
-                console.log(`[${creep.name}] Harvest error: ${harvestResult}`);
-            }
-        }
-    },
-    // Calculate the number of miners needed based on sources in the room
-    numMiners(room) {
-        const roomMemory = Memory.rooms[room.name];
-        if (roomMemory) {
-            const totalVacancies = Object.values(roomMemory.sources).reduce((sum, source) => sum + Math.max(0, source.vacancies - source.creeps.length), 0);
-            return totalVacancies;
-        }
-        return 0;
-    },
-};
 
 var spawnCreeps = {
     spawn(spawn) {
@@ -12502,6 +12503,7 @@ class RoomMemoryManager {
             structures: {},
             creeps: {},
             lastAnalyzed: 0,
+            initialized: true,
         });
         console.log(`Initialized memory for room: ${room.name}`);
         const roomMemory = Memory.rooms[room.name];
@@ -12526,6 +12528,8 @@ class RoomMemoryManager {
                 creeps: [],
             });
         });
+        // Set it initialized
+        Memory.rooms[room.name].initialized = true;
     }
     static addCreepToRoom(room, creep) {
         const roomMemory = Memory.rooms[room.name];
@@ -12534,9 +12538,17 @@ class RoomMemoryManager {
             role: creep.memory.role,
             target: creep.memory.target,
         };
-        // Assign the creep to a target if specified
+        // Assign the creep to a target if specified and not already assigned
         if (creep.memory.target) {
-            this.assignCreepToTarget(room, creep.name, creep.memory.target);
+            const roomMemory = Memory.rooms[room.name];
+            // Check if the creep is already assigned to the target
+            const isAlreadyAssigned = Object.values(roomMemory.sources).some(source => source.creeps.includes(creep.name)) || Object.values(roomMemory.structures).some(structure => structure.creeps.includes(creep.name));
+            if (!isAlreadyAssigned) {
+                this.assignCreepToTarget(room, creep.name, creep.memory.target);
+            }
+            else {
+                console.log(`[${creep.name}] Already assigned to target: ${creep.memory.target}`);
+            }
         }
     }
     static removeCreepFromRoom(room, creepName) {
@@ -12570,6 +12582,12 @@ class RoomMemoryManager {
                 this.removeCreepFromRoom(room, creepName);
             }
         }
+        // Cleanup expired workers from creeps too
+        for (const name in Memory.creeps) {
+            if (!Game.creeps[name]) {
+                delete Memory.creeps[name];
+            }
+        }
     }
 }
 
@@ -12578,13 +12596,15 @@ const analyzeRoom = {
         const roomMemory = Memory.rooms[room.name];
         // Check if analysis is needed
         const now = Game.time;
-        if (roomMemory.lastAnalyzed && now - roomMemory.lastAnalyzed < 500) {
-            console.log(`Room ${room.name} analysis skipped (recently analyzed).`);
+        if (roomMemory.lastAnalyzed && now - roomMemory.lastAnalyzed < 60) {
+            console.log(`Room ${room.name} analysis skipped (recently analyzed). Next analysis in ${60 - now + roomMemory.lastAnalyzed} s.`);
             return;
         }
         console.log(`Analyzing room: ${room.name}`);
         // Ensure room memory is initialized
-        RoomMemoryManager.initializeRoomMemory(room);
+        if (!Memory.rooms[room.name].initialized) {
+            RoomMemoryManager.initializeRoomMemory(room);
+        }
         // Analyze sources
         const sources = room.find(FIND_SOURCES);
         sources.forEach(source => {
@@ -12621,22 +12641,19 @@ const analyzeRoom = {
     },
 };
 
-// import roleBuilder from "./behaviour/builder";
+// import roleHarvester from "./behaviour/harvester";
 // import * as _ from 'lodash';
 function loop() {
-    var _a;
     for (const roomName in Game.rooms) {
         const room = Game.rooms[roomName];
-        console.log(`Processing room: ${roomName}`);
         // Initialize room memory
-        RoomMemoryManager.initializeRoomMemory(room);
-        console.log("Memory after initialization:", JSON.stringify(Memory.rooms[roomName]));
-        // Analyze room if necessary
-        const lastAnalyzed = ((_a = Memory.rooms[room.name]) === null || _a === void 0 ? void 0 : _a.lastAnalyzed) || 0;
-        if (Game.time - lastAnalyzed > 60) {
-            analyzeRoom.analyze(room);
+        if (!Memory.rooms[roomName].initialized) {
+            RoomMemoryManager.initializeRoomMemory(room);
         }
-        // Cleanup expired workers
+        // Analyze room if necessary
+        Memory.rooms[room.name].lastAnalyzed;
+        analyzeRoom.analyze(room);
+        // Cleanup expired workers from room memory
         RoomMemoryManager.cleanupExpiredCreeps(room);
         // Add new creeps to room memory
         for (const creepName in Game.creeps) {
@@ -12644,39 +12661,6 @@ function loop() {
             if (!Memory.rooms[roomName].creeps[creep.name]) {
                 RoomMemoryManager.addCreepToRoom(room, creep);
             }
-        }
-    }
-    //   console.log("1");
-    //   for (const roomName in Game.rooms) {
-    //     const room = Game.rooms[roomName];
-    //     // Initialize room memory
-    //     RoomMemoryManager.initializeRoomMemory(room);
-    //     console.log("2");
-    //     // Analyze room if necessary
-    //     if(Game.time - Memory.rooms[room.name].lastAnalyzed! || 0 < 1000){
-    //       analyzeRoom.analyze(room);
-    //     }
-    //     console.log("3");
-    //     // Cleanup expired workers
-    //     RoomMemoryManager.cleanupExpiredCreeps(room);
-    //     // Add new creeps to room memory
-    //     for (const creepName in Game.creeps) {
-    //         const creep = Game.creeps[creepName];
-    //         if (!Memory.rooms[roomName].creeps[creep.name]) {
-    //             RoomMemoryManager.addCreepToRoom(room, creep);
-    //         }
-    //     }
-    // }
-    // console.log("4");
-    //   if (!Memory.rooms) {
-    //     Memory.rooms = {};
-    // }
-    if (Object.keys(Memory.rooms).length === 0) {
-        // Memory.rooms is empty; execute code once here
-        console.log("No rooms in Memory.rooms, executing analysis code...");
-        for (const roomName in Game.rooms) {
-            const room = Game.rooms[roomName];
-            analyzeRoom.analyze(room);
         }
     }
     const myStructureKeys = Object.keys(Game.structures);
@@ -12696,22 +12680,19 @@ function loop() {
     });
     structureTower.run(towers);
     for (const name in Game.creeps) {
-        Game.creeps[name];
-        /*if (creep.memory.role === MemoryRole.HARVESTER.valueOf()) {
-            roleHarvester.run(creep);
-        }
-        if (creep.memory.role === MemoryRole.BUILDER.valueOf()) {
-            roleBuilder.run(creep);
-        }
-        if (creep.memory.role === MemoryRole.UPGRADER.valueOf()) {
-            roleUpgrader.run(creep);
-        }
-            */
-        for (const name in Game.creeps) {
-            const creep = Game.creeps[name];
-            if (creep.memory.role === "miner") {
-                roleMiner.run(creep);
+        const creep = Game.creeps[name];
+        if (creep.memory.role === "miner") {
+            roleMiner.run(creep);
+            /*if (creep.memory.role === MemoryRole.HARVESTER.valueOf()) {
+                roleHarvester.run(creep);
             }
+            if (creep.memory.role === MemoryRole.BUILDER.valueOf()) {
+                roleBuilder.run(creep);
+            }
+            if (creep.memory.role === MemoryRole.UPGRADER.valueOf()) {
+                roleUpgrader.run(creep);
+            }
+                */
         }
     }
 }

@@ -6,15 +6,17 @@ const analyzeRoom = {
 
         // Check if analysis is needed
         const now = Game.time;
-        if (roomMemory.lastAnalyzed && now - roomMemory.lastAnalyzed < 500) {
-            console.log(`Room ${room.name} analysis skipped (recently analyzed).`);
+        if (roomMemory.lastAnalyzed && now - roomMemory.lastAnalyzed < 60) {
+            console.log(`Room ${room.name} analysis skipped (recently analyzed). Next analysis in ${60 - now + roomMemory.lastAnalyzed} s.`);
             return;
         }
 
         console.log(`Analyzing room: ${room.name}`);
 
         // Ensure room memory is initialized
-        RoomMemoryManager.initializeRoomMemory(room);
+        if (!Memory.rooms[room.name].initialized){
+            RoomMemoryManager.initializeRoomMemory(room);
+        }
 
         // Analyze sources
         const sources = room.find(FIND_SOURCES);
