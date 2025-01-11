@@ -12463,133 +12463,92 @@ class SpawnQueueManager {
             ? memRoom.spawnQueue[0]
             : undefined;
     }
+    static isQueueAvailable(room) {
+        if (this.getQueueLength(room) - 2 >= 0) {
+            return false;
+        }
+        else {
+            return true;
+        }
+    }
 }
 
 // import * as _ from "lodash";
+const roleConfigs = {
+    miner: { role: "miner", parts: [WORK, WORK, MOVE] },
+    hauler: { role: "hauler", parts: [CARRY, MOVE, MOVE] },
+    builder: { role: "builder", parts: [WORK, CARRY, MOVE] },
+    upgrader: { role: "upgrader", parts: [WORK, CARRY, MOVE] },
+    dummy: { role: "dummy", parts: [WORK, CARRY, MOVE] },
+};
 var spawnCreeps = {
     spawn(spawn) {
         const room = spawn.room;
         const creeps = Game.creeps;
+        // Calculate total vacancies
+        const totalVacancies = Object.values(Memory.rooms[room.name].sources).reduce((sum, source) => sum + (source.vacancies || 0), 0);
         // Count creeps by role
-        const miners = _.filter(creeps, creep => creep.memory.role === "miner").length;
-        const haulers = _.filter(creeps, creep => creep.memory.role === "hauler").length;
-        const builders = _.filter(creeps, creep => creep.memory.role === "builder").length;
-        const upgraders = _.filter(creeps, creep => creep.memory.role === "upgrader").length;
-        const totalCreeps = miners + haulers + builders + upgraders;
-        // Define role configurations
-        const minerEntity = { role: "miner", parts: [WORK, WORK, MOVE] };
-        const haulerEntity = { role: "hauler", parts: [CARRY, MOVE, MOVE] };
-        const builderEntity = { role: "builder", parts: [WORK, CARRY, MOVE] };
-        const upgraderEntity = { role: "upgrader", parts: [WORK, CARRY, MOVE] };
-        // Enforce maximum queue length of 4
-        if (SpawnQueueManager.getQueueLength(room) >= 4) {
+        const roleCounts = this.CountCreepsByRole(creeps);
+        const totalCreeps = roleCounts.miner + roleCounts.hauler + roleCounts.builder + roleCounts.upgrader + roleCounts.dummy;
+        // Enforce maximum queue length
+        if (!SpawnQueueManager.isQueueAvailable(room)) {
             console.log(`[SpawnQueue] Queue is full in room ${room.name}.`);
-            return;
         }
-        if (totalCreeps < 6) {
-            // Border case: High-priority logic when fewer than 6 creeps
-            if (miners < 1) {
-                SpawnQueueManager.addToQueue(room, minerEntity.role, minerEntity.parts);
-            }
-            if (haulers < 1) {
-                SpawnQueueManager.addToQueue(room, haulerEntity.role, haulerEntity.parts);
-            }
-            if (haulers < miners * 2) {
-                SpawnQueueManager.addToQueue(room, haulerEntity.role, haulerEntity.parts);
-            }
-            if (miners < Math.floor(haulers / 2)) {
-                SpawnQueueManager.addToQueue(room, minerEntity.role, minerEntity.parts);
-            }
+        // High-priority logic for less than 1 miner creep -> create 3 dummies
+        if ((roleCounts.miner < 1) && (roleCounts.dummy < 3)) {
+            SpawnQueueManager.clearQueue(room);
+            this.enqueueCreep(room, "dummy");
+            // We have at least 3 dummies working
         }
-        else {
-            // Smooth operation logic when there are at least 6 creeps
-            if (builders < 2) {
-                SpawnQueueManager.addToQueue(room, builderEntity.role, builderEntity.parts);
-            }
-            if (upgraders < 2) {
-                SpawnQueueManager.addToQueue(room, upgraderEntity.role, upgraderEntity.parts);
-            }
-            // Dynamic spawn for higher-level logic
-            if (haulers < miners * 2) {
-                SpawnQueueManager.addToQueue(room, haulerEntity.role, haulerEntity.parts);
-            }
-            if (miners < Math.floor(haulers / 2)) {
-                SpawnQueueManager.addToQueue(room, minerEntity.role, minerEntity.parts);
+        else if (totalCreeps < 7) {
+            if ((roleCounts.miner < 1) && SpawnQueueManager.isQueueAvailable(room))
+                this.enqueueCreep(room, "miner");
+            if ((roleCounts.hauler < 1) && SpawnQueueManager.isQueueAvailable(room))
+                this.enqueueCreep(room, "hauler");
+            if ((roleCounts.hauler < roleCounts.miner * 2) && SpawnQueueManager.isQueueAvailable(room))
+                this.enqueueCreep(room, "hauler");
+            if ((roleCounts.miner < totalVacancies - 1) && SpawnQueueManager.isQueueAvailable(room))
+                this.enqueueCreep(room, "miner");
+        }
+        else ;
+        // Process the spawn queue
+        if ((SpawnQueueManager.getQueueLength(room) > 0) && !spawn.spawning) {
+            const nextCreep = SpawnQueueManager.peekQueue(room);
+            // Check if nextCreep is defined
+            if (nextCreep) {
+                const energyCapacityAvailable = room.energyCapacityAvailable;
+                const creepCost = this.getEnergyCost(nextCreep.parts);
+                if (energyCapacityAvailable >= creepCost) {
+                    const newName = `${nextCreep.role}_${Game.time}`;
+                    const result = spawn.spawnCreep(nextCreep.parts, newName, {
+                        memory: { id: newName, role: nextCreep.role, target: undefined, working: false },
+                    });
+                    if (result === OK) {
+                        console.log(`[Spawn] Spawning new ${nextCreep.role}: ${newName}`);
+                        // this.assignCreepTarget(newName, nextCreep.role, room);
+                        SpawnQueueManager.removeFirstFromQueue(room); // Remove the creep from the queue
+                    }
+                    else {
+                        console.log(`[Spawn] Failed to spawn ${nextCreep.role}: ${result}`);
+                    }
+                }
             }
         }
     },
-    // Process the spawn queue
-    //     if (spawnQueue.length > 0 && !spawn.spawning) {
-    //         const nextCreep = spawnQueue[0];
-    //         const energyAvailable = room.energyAvailable;
-    //         const creepCost = this.getEnergyCost(nextCreep.parts);
-    //         if (energyAvailable >= creepCost) {
-    //             const newName = `${nextCreep.role}_${Game.time}`;
-    //             const result = spawn.spawnCreep(nextCreep.parts, newName, {
-    //                 memory: { role: nextCreep.role, target: null, working: false },
-    //             });
-    //             if (result === OK) {
-    //                 console.log(`[Spawn] Spawning new ${nextCreep.role}: ${newName}`);
-    //                 this.assignCreepTarget(newName, nextCreep.role, room);
-    //                 spawnQueue.shift(); // Remove the creep from the queue
-    //             } else {
-    //                 console.log(`[Spawn] Failed to spawn ${nextCreep.role}: ${result}`);
-    //             }
-    //         }
-    //     }
-    // },
-    // /**
-    //  * Assign a target to a newly spawned creep based on its role.
-    //  * @param {string} creepName - The name of the creep.
-    //  * @param {string} role - The role of the creep.
-    //  * @param {Room} room - The room the creep belongs to.
-    //  */
-    // assignCreepTarget(creepName: string, role: string, room: Room): void {
-    //     const creep = Game.creeps[creepName];
-    //     if (!creep) {
-    //         console.log(`[Assign] Creep ${creepName} does not exist.`);
-    //         return;
-    //     }
-    //     if (role === "miner") {
-    //         // Assign the miner to a source with vacancies
-    //         const sources = room.find(FIND_SOURCES);
-    //         const source = sources.find(src => {
-    //             const sourceMemory = Memory.rooms[room.name].sources[src.id];
-    //             return sourceMemory?.creeps.length < sourceMemory?.vacancies;
-    //         });
-    //         if (source) {
-    //             creep.memory.target = source.id;
-    //             Memory.rooms[room.name].sources[source.id].creeps.push(creepName);
-    //             console.log(`[Assign] Miner ${creepName} assigned to source: ${source.id}`);
-    //         }
-    //     } else if (role === "hauler") {
-    //         // Haulers get energy drops or containers as targets
-    //         const droppedResources = room.find(FIND_DROPPED_RESOURCES, {
-    //             filter: res => res.resourceType === RESOURCE_ENERGY,
-    //         });
-    //         if (droppedResources.length > 0) {
-    //             creep.memory.target = droppedResources[0].id;
-    //             console.log(`[Assign] Hauler ${creepName} assigned to dropped energy: ${droppedResources[0].id}`);
-    //         }
-    //     } else if (role === "builder" || role === "upgrader") {
-    //         // Builders and upgraders focus on the controller or construction sites
-    //         if (role === "builder") {
-    //             const constructionSites = room.find(FIND_CONSTRUCTION_SITES);
-    //             if (constructionSites.length > 0) {
-    //                 creep.memory.target = constructionSites[0].id;
-    //                 console.log(`[Assign] Builder ${creepName} assigned to site: ${constructionSites[0].id}`);
-    //             }
-    //         } else if (role === "upgrader") {
-    //             creep.memory.target = room.controller?.id || null;
-    //             console.log(`[Assign] Upgrader ${creepName} assigned to controller.`);
-    //         }
-    //     }
-    // },
-    /**
-     * Calculate the total energy cost of a body part array.
-     * @param {BodyPartConstant[]} bodyParts
-     * @returns {number} The total energy cost.
-     */
+    CountCreepsByRole(creeps) {
+        return {
+            miner: _.filter(creeps, creep => creep.memory.role === "miner").length,
+            hauler: _.filter(creeps, creep => creep.memory.role === "hauler").length,
+            builder: _.filter(creeps, creep => creep.memory.role === "builder").length,
+            upgrader: _.filter(creeps, creep => creep.memory.role === "upgrader").length,
+            dummy: _.filter(creeps, creep => creep.memory.role === "dummy").length,
+        };
+    },
+    enqueueCreep(room, role) {
+        const { role: creepRole, parts } = roleConfigs[role];
+        SpawnQueueManager.addToQueue(room, creepRole, parts);
+        console.log(`[SpawnQueue] Added ${creepRole} to the queue in room ${room.name}`);
+    },
     getEnergyCost(bodyParts) {
         const bodyPartCosts = {
             move: 50,
@@ -12603,6 +12562,79 @@ var spawnCreeps = {
         };
         return bodyParts.reduce((cost, part) => cost + bodyPartCosts[part], 0);
     },
+};
+
+var roleDummy = {
+    run(creep) {
+        // Ensure the creep has a target source assigned
+        if (!creep.memory.target) {
+            const roomMemory = Memory.rooms[creep.room.name];
+            const availableSource = Object.values(roomMemory.sources).find(source => {
+                return source.vacancies > source.creeps.length;
+            });
+            if (availableSource) {
+                creep.memory.target = availableSource.id;
+                roomMemory.sources[availableSource.id].creeps.push(creep.name);
+                console.log(`[${creep.name}] Assigned to source: ${availableSource.id}`);
+            }
+            else {
+                console.log(`[${creep.name}] No available sources with vacancies.`);
+                return;
+            }
+        }
+        // Check harvesting state
+        if (!creep.memory.mining && creep.store[RESOURCE_ENERGY] === 0) {
+            creep.memory.mining = true;
+            creep.say("🔄 harvest");
+        }
+        if (creep.memory.mining && creep.store.getFreeCapacity() === 0) {
+            creep.memory.mining = false;
+            creep.say("🚿 storing");
+        }
+        if (creep.memory.mining) {
+            // Mining logic
+            const target = Game.getObjectById(creep.memory.target);
+            if (!target) {
+                console.log(`[${creep.name}] Invalid target: ${creep.memory.target}`);
+                delete creep.memory.target; // Clear invalid target
+                return;
+            }
+            const harvestResult = creep.harvest(target);
+            if (harvestResult === ERR_NOT_IN_RANGE) {
+                creep.moveTo(target, { visualizePathStyle: { stroke: "#ffaa00" } });
+                console.log(`[${creep.name}] Moving to source: ${target.id}`);
+            }
+            else if (harvestResult === OK) {
+                console.log(`[${creep.name}] Mining at source: ${target.id}`);
+            }
+            else {
+                console.log(`[${creep.name}] Mining error: ${harvestResult}`);
+            }
+        }
+        else {
+            // Delivery logic
+            const spawn = creep.room.find(FIND_MY_SPAWNS)[0];
+            if (!spawn) {
+                console.log(`[${creep.name}] No spawn found in room: ${creep.room.name}`);
+                return;
+            }
+            const transferResult = creep.transfer(spawn, RESOURCE_ENERGY);
+            if (transferResult === ERR_NOT_IN_RANGE) {
+                creep.moveTo(spawn, { visualizePathStyle: { stroke: "#ffffff" } });
+                console.log(`[${creep.name}] Moving to spawn: ${spawn.id}`);
+            }
+            else if (transferResult === OK) {
+                console.log(`[${creep.name}] Transferred energy to spawn: ${spawn.id}`);
+            }
+            else {
+                console.log(`[${creep.name}] Transfer error: ${transferResult}`);
+            }
+        }
+    },
+    // Calculate the number of dummies needed based on sources in the room
+    numDummies(room) {
+        return 3;
+    }
 };
 
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
@@ -12778,7 +12810,7 @@ function loop() {
     for (const roomName in Game.rooms) {
         const room = Game.rooms[roomName];
         // Initialize room memory
-        if (!Memory.rooms[roomName].initialized) {
+        if (!Memory.rooms[roomName]) {
             RoomMemoryManager.initializeRoomMemory(room);
         }
         // Analyze room if necessary
@@ -12814,17 +12846,20 @@ function loop() {
         const creep = Game.creeps[name];
         if (creep.memory.role === "miner") {
             roleMiner.run(creep);
-            /*if (creep.memory.role === MemoryRole.HARVESTER.valueOf()) {
-                roleHarvester.run(creep);
-            }
-            if (creep.memory.role === MemoryRole.BUILDER.valueOf()) {
-                roleBuilder.run(creep);
-            }
-            if (creep.memory.role === MemoryRole.UPGRADER.valueOf()) {
-                roleUpgrader.run(creep);
-            }
-                */
         }
+        else if (creep.memory.role === "dummy") {
+            roleDummy.run(creep);
+        }
+        /*if (creep.memory.role === MemoryRole.HARVESTER.valueOf()) {
+            roleHarvester.run(creep);
+        }
+        if (creep.memory.role === MemoryRole.BUILDER.valueOf()) {
+            roleBuilder.run(creep);
+        }
+        if (creep.memory.role === MemoryRole.UPGRADER.valueOf()) {
+            roleUpgrader.run(creep);
+        }
+            */
     }
 }
 

@@ -9,6 +9,7 @@ import roleMiner from "./behaviour/miner";
 import roleHauler from "./behaviour/hauler";
 
 import spawnCreeps from "./scripts/spawn.creep";
+import roleDummy from "./behaviour/dummy";
 
 import structureTower from "./structures/tower";
 import { NONAME } from "dns";
@@ -24,14 +25,13 @@ export function loop() {
             const room = Game.rooms[roomName];
 
             // Initialize room memory
-            if (!Memory.rooms[roomName].initialized){
+            if (!Memory.rooms[roomName]){
                 RoomMemoryManager.initializeRoomMemory(room);
-            }
+            };
 
             // Analyze room if necessary
             const lastAnalyzed = Memory.rooms[room.name].lastAnalyzed;
             analyzeRoom.analyze(room);
-
 
             // Cleanup expired workers from room memory
             RoomMemoryManager.cleanupExpiredCreeps(room);
@@ -69,6 +69,11 @@ export function loop() {
         const creep = Game.creeps[name];
         if (creep.memory.role === "miner") {
             roleMiner.run(creep);
+        } else if (creep.memory.role === "dummy") {
+            roleDummy.run(creep);
+        } else if (creep.memory.role === "hauler") {
+            roleHauler.run(creep);
+        }
         /*if (creep.memory.role === MemoryRole.HARVESTER.valueOf()) {
             roleHarvester.run(creep);
         }
@@ -80,5 +85,4 @@ export function loop() {
         }
             */
         }
-    }
-    }
+}

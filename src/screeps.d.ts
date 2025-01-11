@@ -5,6 +5,7 @@ declare global {
         target?: Id<Source | Structure>;
         mining?: boolean;
         pickingUp?: boolean;
+        working?: boolean;
     }
 
     interface SourceMemory {

@@ -3,7 +3,8 @@ enum MemoryRole {
     UPGRADER = 'upgrader',
     BUILDER = 'builder',
     MINER = 'miner',
-    HAULER = 'hauler'
+    HAULER = 'hauler',
+    DUMMY = 'dummy',
 }
 
 export default MemoryRole;

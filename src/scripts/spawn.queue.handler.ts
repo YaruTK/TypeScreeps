@@ -65,4 +65,13 @@ export class SpawnQueueManager {
             ? memRoom.spawnQueue[0]
             : undefined;
     }
+
+    static isQueueAvailable(room: Room): boolean {
+        if (this.getQueueLength(room) - 2 >= 0){
+            return false;
+        } else {
+            return true;
+        }
+
+    }
 }
