@@ -1,9 +1,10 @@
+import actions from "../scripts/actions"
+
 let roleDummy: {
     /**
      * @param {Creep} creep
      */
     run(creep: Creep): void;
-    numDummies(room: Room): number;
 };
 
 export default roleDummy = {
@@ -28,12 +29,12 @@ export default roleDummy = {
         // Check harvesting state
         if (!creep.memory.mining && creep.store[RESOURCE_ENERGY] === 0) {
             creep.memory.mining = true;
-            creep.say("🔄 harvest");
+            creep.say("⛏ Harvesting");
         }
 
         if (creep.memory.mining && creep.store.getFreeCapacity() === 0) {
             creep.memory.mining = false;
-            creep.say("🚿 storing");
+            creep.say("♿ Delivering");
         }
 
         if (creep.memory.mining) {
@@ -45,36 +46,18 @@ export default roleDummy = {
                 return;
             }
 
-            const harvestResult = creep.harvest(target);
-            if (harvestResult === ERR_NOT_IN_RANGE) {
-                creep.moveTo(target, { visualizePathStyle: { stroke: "#ffaa00" } });
-                console.log(`[${creep.name}] Moving to source: ${target.id}`);
-            } else if (harvestResult === OK) {
-                console.log(`[${creep.name}] Mining at source: ${target.id}`);
-            } else {
-                console.log(`[${creep.name}] Mining error: ${harvestResult}`);
-            }
+            actions.mine(creep, target);
+
         } else {
+
             // Delivery logic
             const spawn = creep.room.find(FIND_MY_SPAWNS)[0];
             if (!spawn) {
                 console.log(`[${creep.name}] No spawn found in room: ${creep.room.name}`);
                 return;
-            }
+            };
 
-            const transferResult = creep.transfer(spawn, RESOURCE_ENERGY);
-            if (transferResult === ERR_NOT_IN_RANGE) {
-                creep.moveTo(spawn, { visualizePathStyle: { stroke: "#ffffff" } });
-                console.log(`[${creep.name}] Moving to spawn: ${spawn.id}`);
-            } else if (transferResult === OK) {
-                console.log(`[${creep.name}] Transferred energy to spawn: ${spawn.id}`);
-            } else {
-                console.log(`[${creep.name}] Transfer error: ${transferResult}`);
-            }
+            actions.supply(creep, spawn);
         }
-},
-    // Calculate the number of dummies needed based on sources in the room
-    numDummies(room: Room): number {
-        return 3;
 }
 }

@@ -1,3 +1,5 @@
+import config from "./config";
+
 export class SpawnQueueManager {
     /**
      * Add a new creep to the spawn queue.
@@ -67,7 +69,7 @@ export class SpawnQueueManager {
     }
 
     static isQueueAvailable(room: Room): boolean {
-        if (this.getQueueLength(room) - 2 >= 0){
+        if (this.getQueueLength(room) - config.general.maxQueueLength >= 0){
             return false;
         } else {
             return true;

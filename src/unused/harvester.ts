@@ -66,10 +66,10 @@
 //                 }
 //             });
 
-//             const targetsExtentions: AnyStructure[] = [];
+//             const targetsExtensions: AnyStructure[] = [];
 //             targets.forEach(target => {
 //                 if (target.structureType === STRUCTURE_EXTENSION) {
-//                     targetsExtentions.push(target);
+//                     targetsExtensions.push(target);
 //                 }
 //             });
 
@@ -99,7 +99,7 @@
 //                 targetContainers.push(target);
 //             });
 
-//             const orderedTargets = [targetsExtentions, targetSpawns, targetTowers, targetStorages, targetContainers];
+//             const orderedTargets = [targetsExtensions, targetSpawns, targetTowers, targetStorages, targetContainers];
 
 //             let targetIndex = 0;
 //             let targetId: Id<_HasId> = "" as Id<_HasId>;

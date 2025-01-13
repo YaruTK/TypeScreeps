@@ -1,9 +1,10 @@
+import actions from "../scripts/actions"
+
 let roleMiner: {
     /**
      * @param {Creep} creep
      */
     run(creep: Creep): void;
-    numMiners(room: Room): number;
 };
 
 export default roleMiner = {
@@ -34,31 +35,8 @@ export default roleMiner = {
                 delete creep.memory.target; // Clear invalid target
                 return;
             }
-
-            // Move to the assigned source and harvest
-            const harvestResult = creep.harvest(target);
-            if (harvestResult === ERR_NOT_IN_RANGE) {
-                creep.moveTo(target, { visualizePathStyle: { stroke: "#ffaa00" } });
-                console.log(`[${creep.name}] Moving to source: ${target.id}`);
-            } else if (harvestResult === OK) {
-                // Mining is successful; log debug info
-                console.log(`[${creep.name}] Mining at source: ${target.id}`);
-            } else {
-                console.log(`[${creep.name}] Harvest error: ${harvestResult}`);
-            }
+            actions.mine(creep, target);
         }
     },
 
-    // Calculate the number of miners needed based on sources in the room
-    numMiners(room: Room): number {
-        const roomMemory = Memory.rooms[room.name];
-        if (roomMemory) {
-            const totalVacancies = Object.values(roomMemory.sources).reduce(
-                (sum, source) => sum + Math.max(0, source.vacancies - source.creeps.length),
-                0
-            );
-            return totalVacancies;
-        }
-        return 0;
-    },
 };

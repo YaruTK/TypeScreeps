@@ -1,107 +1,16 @@
-// import * as _ from "lodash";
-// import memoryCreep from "./memory.creep";
-// import roleMiner from "../behaviour/miner";
-
-// let spawnCreeps: {
-//     spawn(spawn: StructureSpawn): void;
-// };
-
-// export default spawnCreeps = {
-//     spawn(spawn) {
-//         /**
-//          * Add a creep to a source in memory.
-//          * @param {Creep} creep - The creep to assign.
-//          * @param {Source} source - The source to assign the creep to.
-//          */
-//         function addCreepToSource(creep: Creep, source: Source): void {
-
-//             const roomMemory = Memory.rooms[creep.room.name];
-//             if (!roomMemory) {
-//                 console.log(`[${creep.name}] Room memory is not initialized.`);
-//                 return;
-//             }
-
-//             const sourceMemory = roomMemory.sources[source.id];
-//             if (!sourceMemory) {
-//                 console.log(`[${creep.name}] Source ${source.id} is not in room memory.`);
-//                 return;
-//             }
-
-//             // Assign creep to the source
-//             sourceMemory.creeps.push(creep.name);
-//             creep.memory.target = source.id;
-//             console.log(`[${creep.name}] Assigned to source: ${source.id}`);
-//         }
-
-//         // Find all miners in the room
-//         const miners = _.filter(Game.creeps, creep => creep.memory.role === memoryCreep.MINER);
-
-//         // Determine the required number of miners
-//         const requiredMiners = roleMiner.numMiners(spawn.room);
-
-//         // Spawn miners if needed
-//         if (miners.length < requiredMiners) {
-//             const newName = "Miner" + Game.time;
-//             console.log(`Spawning new miner: ${newName}`);
-
-//             // Find a source with vacancies
-//             const roomMemory = Memory.rooms[spawn.room.name];
-//             const availableSource = Object.values(roomMemory.sources)
-//                 .find(source => source.vacancies > source.creeps.length);
-
-//             if (availableSource) {
-//                 const spawnResult = spawn.spawnCreep([WORK, WORK, MOVE], newName, {
-//                     memory: {
-//                         id: newName,
-//                         role: memoryCreep.MINER },
-//                 });
-
-//                 if (spawnResult === OK) {
-//                     console.log(`[${newName}] Successfully spawned.`);
-//                     const newCreep = Game.creeps[newName];
-//                     if (newCreep) {
-//                         addCreepToSource(newCreep, Game.getObjectById(availableSource.id)!);
-//                     }
-//                 } else {
-//                     console.log(`[${newName}] Spawn failed with error: ${spawnResult}`);
-//                 }
-//             } else {
-//                 console.log("No available sources with vacancies for new miners.");
-//             }
-//         }
-
-//         // Display spawning progress visually
-//         if (spawn.spawning) {
-//             const spawningCreep = Game.creeps[spawn.spawning.name];
-//             spawn.room.visual.text(
-//                 `🛠️ ${spawningCreep.memory.role}`,
-//                 spawn.pos.x + 1,
-//                 spawn.pos.y,
-//                 { align: "left", opacity: 0.8 }
-//             );
-//         }
-//     }
-// };
-
-
 import _ from "lodash";
-import { SpawnQueueManager as SQM }  from "./spawn.queue.handler";
-
-const roleConfigs = {
-    miner: { role: "miner", parts: [WORK, WORK, MOVE] },
-    hauler: { role: "hauler", parts: [CARRY, MOVE, MOVE] },
-    builder: { role: "builder", parts: [WORK, CARRY, MOVE] },
-    upgrader: { role: "upgrader", parts: [WORK, CARRY, MOVE] },
-    dummy: { role: "dummy", parts: [WORK, CARRY, MOVE] },
-};
+import { SpawnQueueManager as SQM } from "./spawn.queue.handler";
+import config from "./config";
+import roleSlave from "../behaviour/slave";
 
 let spawnCreeps: {
     spawn(spawn: StructureSpawn): void;
+    handleLowPopulationSpawning(room: Room, roleCounts: Record<string, number>, totalVacancies: number): void;
+    handleSustainedSpawning(room: Room, roleCounts: Record<string, number>, totalVacancies: number): void;
+    processSpawnQueue(spawn: StructureSpawn): void;
     getEnergyCost(bodyParts: BodyPartConstant[]): number;
-    CountCreepsByRole(creeps: { [name: string]: Creep }): Record<string, number>;
-    enqueueCreep(
-        room: Room,
-        role: keyof typeof roleConfigs): void;
+    countCreepsByRole(creeps: { [name: string]: Creep }): Record<string, number>;
+    enqueueCreep(room: Room, role: keyof typeof config.roles): void;
 };
 
 export default spawnCreeps = {
@@ -116,71 +25,99 @@ export default spawnCreeps = {
         );
 
         // Count creeps by role
-        const roleCounts = this.CountCreepsByRole(creeps);
+        const roleCounts = this.countCreepsByRole(creeps);
+        const totalCreeps = Object.values(roleCounts).reduce((sum, count) => sum + count, 0);
 
-        const totalCreeps =
-            roleCounts.miner + roleCounts.hauler + roleCounts.builder + roleCounts.upgrader + roleCounts.dummy;
-
-        // Enforce maximum queue length
+        // Handle queue capacity
         if (!SQM.isQueueAvailable(room)) {
             console.log(`[SpawnQueue] Queue is full in room ${room.name}.`);
+            //why do i do this?
         }
 
-        // High-priority logic for less than 1 miner creep -> create 3 dummies
-        if ((roleCounts.miner < 1) && (roleCounts.dummy < 3)) {
+        // Priority spawning logic
+        if (roleCounts.miner < 1 && roleCounts.dummy < config.roles.dummy.defaultCount) {
             SQM.clearQueue(room);
             this.enqueueCreep(room, "dummy");
-        // We have at least 3 dummies working
-        } else if (totalCreeps < 7) {
-            if ((roleCounts.miner < 1) && SQM.isQueueAvailable(room)) this.enqueueCreep(room, "miner");
-            if ((roleCounts.hauler < 1) && SQM.isQueueAvailable(room)) this.enqueueCreep(room, "hauler");
-            if ((roleCounts.hauler < roleCounts.miner * 2) && SQM.isQueueAvailable(room)) this.enqueueCreep(room, "hauler");
-            if ((roleCounts.miner < totalVacancies - 1) && SQM.isQueueAvailable(room)) this.enqueueCreep(room, "miner");
+        } else if (totalCreeps < 10) {
+            this.handleLowPopulationSpawning(room, roleCounts, totalVacancies);
         } else {
-            // NORMAL QUEUE FORMATION
+            this.handleSustainedSpawning(room, roleCounts, totalVacancies);
         }
 
         // Process the spawn queue
-        if ((SQM.getQueueLength(room) > 0) && !spawn.spawning) {
+        this.processSpawnQueue(spawn);
+    },
+
+    handleLowPopulationSpawning(room: Room, roleCounts: Record<string, number>, totalVacancies: number) {
+        if (roleCounts.miner < 1 && SQM.isQueueAvailable(room)) this.enqueueCreep(room, "miner");
+        if (roleCounts.hauler < 1 && SQM.isQueueAvailable(room)) this.enqueueCreep(room, "hauler");
+        if (roleCounts.slave < 1 && SQM.isQueueAvailable(room)) this.enqueueCreep(room, "slave");
+        if (roleCounts.hauler < roleCounts.miner && SQM.isQueueAvailable(room)) this.enqueueCreep(room, "hauler");
+        if (roleCounts.slave < roleCounts.miner && SQM.isQueueAvailable(room)) this.enqueueCreep(room, "slave");
+        if (roleCounts.miner < totalVacancies - 1 && SQM.isQueueAvailable(room)) this.enqueueCreep(room, "miner");
+    },
+
+    handleSustainedSpawning(room: Room, roleCounts: Record<string, number>, totalVacancies: number) {
+        if (roleCounts.hauler < roleCounts.miner && SQM.isQueueAvailable(room)) this.enqueueCreep(room, "hauler");
+        if (roleCounts.slave < roleSlave.slavesNeeded() && SQM.isQueueAvailable(room)) this.enqueueCreep(room, "slave");
+        if (roleCounts.miner < totalVacancies - 1 && SQM.isQueueAvailable(room)) this.enqueueCreep(room, "miner");
+    },
+
+    processSpawnQueue(spawn: StructureSpawn) {
+        const room = spawn.room;
+
+        if (SQM.getQueueLength(room) > 0 && !spawn.spawning) {
             const nextCreep = SQM.peekQueue(room);
 
-            // Check if nextCreep is defined
-            if (nextCreep){
+            if (nextCreep) {
                 const energyCapacityAvailable = room.energyCapacityAvailable;
                 const creepCost = this.getEnergyCost(nextCreep.parts);
 
-            if (energyCapacityAvailable >= creepCost) {
-                const newName = `${nextCreep.role}_${Game.time}`;
-                const result = spawn.spawnCreep(nextCreep.parts, newName, {
-                    memory: {id:newName, role: nextCreep.role, target: undefined, working: false },
-                });
-
-                if (result === OK) {
-                    console.log(`[Spawn] Spawning new ${nextCreep.role}: ${newName}`);
-                    // this.assignCreepTarget(newName, nextCreep.role, room);
-                    SQM.removeFirstFromQueue(room); // Remove the creep from the queue
+                if (energyCapacityAvailable >= creepCost) {
+                    const newName = `${nextCreep.role}_${Game.time}`;
+                    let result;
+                    // All slaves by-default are Upgraders
+                    if (nextCreep.role === config.roles.slave.role){
+                    result = spawn.spawnCreep(nextCreep.parts, newName, {
+                        memory: { id: newName, role: nextCreep.role, subRole: "upgrader", target: undefined},
+                    });
+                } else {
+                    result = spawn.spawnCreep(nextCreep.parts, newName, {
+                        memory: { id: newName, role: nextCreep.role, target: undefined},
+                    });
+               }
+                    if (result === OK) {
+                        console.log(`[Spawn] Spawning new ${nextCreep.role}: ${newName}`);
+                        SQM.removeFirstFromQueue(room); // Remove the creep from the queue
                     } else {
                         console.log(`[Spawn] Failed to spawn ${nextCreep.role}: ${result}`);
                     }
+                }
             }
         }
-        }
-        },
-
-    CountCreepsByRole(creeps: { [name: string]: Creep }): Record<string, number> {
-        return {
-            miner: _.filter(creeps, creep => creep.memory.role === "miner").length,
-            hauler: _.filter(creeps, creep => creep.memory.role === "hauler").length,
-            builder: _.filter(creeps, creep => creep.memory.role === "builder").length,
-            upgrader: _.filter(creeps, creep => creep.memory.role === "upgrader").length,
-            dummy: _.filter(creeps, creep => creep.memory.role === "dummy").length,
-        };
     },
 
-    enqueueCreep(room: Room, role: keyof typeof roleConfigs): void {
-        const { role: creepRole, parts } = roleConfigs[role];
-        SQM.addToQueue(room, creepRole, parts);
-        console.log(`[SpawnQueue] Added ${creepRole} to the queue in room ${room.name}`);
+    countCreepsByRole(creeps: { [name: string]: Creep }): Record<string, number> {
+        const roleKeys = Object.keys(config.roles);
+        const counts: Record<string, number> = {};
+
+        roleKeys.forEach(role => {
+            counts[role] = _.filter(creeps, creep => creep.memory.role === role).length;
+        });
+
+        return counts;
+    },
+
+    enqueueCreep(room: Room, role: keyof typeof config.roles): void {
+        const roleConfig = config.roles[role];
+
+        if (!roleConfig) {
+            console.error(`[Enqueue] Invalid role: ${role}`);
+            return;
+        }
+
+        SQM.addToQueue(room, roleConfig.role, roleConfig.parts);
+        console.log(`[Enqueue] Added ${roleConfig.role} to the queue in room ${room.name}`);
     },
 
     getEnergyCost(bodyParts: BodyPartConstant[]): number {
@@ -197,6 +134,3 @@ export default spawnCreeps = {
         return bodyParts.reduce((cost, part) => cost + bodyPartCosts[part], 0);
     },
 };
-
-
-

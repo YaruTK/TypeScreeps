@@ -2,6 +2,7 @@ declare global {
     interface CreepMemory {
         id: string;
         role: string;
+        subRole?: string;
         target?: Id<Source | Structure>;
         mining?: boolean;
         pickingUp?: boolean;

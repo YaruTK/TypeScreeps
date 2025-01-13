@@ -1,21 +1,22 @@
 import { ErrorMapper } from "utils/ErrorMapper";
 
-import MemoryRole from "./scripts/memory.creep";
-
-// import roleHarvester from "./behaviour/harvester";
-// import roleUpgrader from "./behaviour/upgrader";
-
+import roleDummy from "./behaviour/dummy";
 import roleMiner from "./behaviour/miner";
 import roleHauler from "./behaviour/hauler";
+import roleSlave from "./behaviour/slave";
+
+import { RoomMemoryManager } from "memory.handler";
+import config from "./scripts/config"
 
 import spawnCreeps from "./scripts/spawn.creep";
-import roleDummy from "./behaviour/dummy";
+import analyzeRoom from "./scripts/analysis";
+
 
 import structureTower from "./structures/tower";
 import { NONAME } from "dns";
-import analyzeRoom from "./scripts/analysis";
+
 import { isEmpty } from "lodash";
-import { RoomMemoryManager } from "memory.handler";
+
 // import * as _ from 'lodash';
 
 
@@ -65,24 +66,20 @@ export function loop() {
 
     structureTower.run(towers);
 
-    for (const name in Game.creeps) {
-        const creep = Game.creeps[name];
-        if (creep.memory.role === "miner") {
-            roleMiner.run(creep);
-        } else if (creep.memory.role === "dummy") {
-            roleDummy.run(creep);
-        } else if (creep.memory.role === "hauler") {
-            roleHauler.run(creep);
+    for (const roomName in Game.rooms) {
+        const room = Game.rooms[roomName];
+
+        for (const name in Game.creeps) {
+            const creep = Game.creeps[name];
+            if (creep.memory.role === config.roles.miner.role) {
+                roleMiner.run(creep);
+            } else if (creep.memory.role === config.roles.dummy.role) {
+                roleDummy.run(creep);
+            } else if (creep.memory.role === config.roles.hauler.role) {
+                roleHauler.run(creep);
+            } else if (creep.memory.role === config.roles.slave.role) {
+                roleSlave.run(creep);
+            }
         }
-        /*if (creep.memory.role === MemoryRole.HARVESTER.valueOf()) {
-            roleHarvester.run(creep);
-        }
-        if (creep.memory.role === MemoryRole.BUILDER.valueOf()) {
-            roleBuilder.run(creep);
-        }
-        if (creep.memory.role === MemoryRole.UPGRADER.valueOf()) {
-            roleUpgrader.run(creep);
-        }
-            */
-        }
+}
 }
