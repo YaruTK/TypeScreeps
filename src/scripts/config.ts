@@ -15,7 +15,7 @@ export const config = {
             role: "slave",
             parts: [WORK, CARRY, MOVE],
             defaultCount: 1, // Default number of slaves
-            defaultUpgraderCount: 2,
+            defaultUpgraderCount: 3, // Default number of upgrader slaves
         },
         dummy: {
             role: "dummy",
@@ -36,6 +36,7 @@ export const config = {
     general: {
         maxQueueLength: 2, // Maximum spawn queue length
         repairThreshold: 0.5, // Structures below this percentage will be repaired
+        repairWalls: false,
     },
     colors: {
         paths: {

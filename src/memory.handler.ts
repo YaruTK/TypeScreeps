@@ -37,11 +37,16 @@ export class RoomMemoryManager {
 
     static addCreepToRoom(room: Room, creep: Creep): void {
         const roomMemory = Memory.rooms[room.name];
+        if (!room.name){
+            console.log(`There is no room could be assigned`)
+        } else {
         roomMemory.creeps[creep.name] = {
             id: creep.name,
             role: creep.memory.role,
             target: creep.memory.target,
+            roomAssignment: room.name,
         };
+        }
         // Assign the creep to a target if specified and not already assigned
         if (creep.memory.target) {
             const roomMemory = Memory.rooms[room.name];

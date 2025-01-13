@@ -19,7 +19,7 @@ const config = {
             role: "slave",
             parts: [WORK, CARRY, MOVE],
             defaultCount: 1,
-            defaultUpgraderCount: 2,
+            defaultUpgraderCount: 3, // Default number of upgrader slaves
         },
         dummy: {
             role: "dummy",
@@ -39,7 +39,8 @@ const config = {
     },
     general: {
         maxQueueLength: 2,
-        repairThreshold: 0.5, // Structures below this percentage will be repaired
+        repairThreshold: 0.5,
+        repairWalls: false,
     },
     colors: {
         paths: {
@@ -50,631 +51,6 @@ const config = {
         },
     },
 };
-
-const actions = {
-    /**
-     * Upgrade the room controller.
-     * @param {Creep} creep - The creep performing the action.
-     * @param {StructureController} [target] - The controller to upgrade.
-     */
-    upgradeController(creep, target) {
-        const controller = target || creep.room.controller;
-        if (!controller) {
-            creep.say("❌ No controller");
-            return;
-        }
-        if (creep.store[RESOURCE_ENERGY] === 0) {
-            creep.say("❌ No energy");
-            return;
-        }
-        console.log(`${creep.name} upgrading ${controller}`);
-        const result = creep.upgradeController(controller);
-        if (result === ERR_NOT_IN_RANGE) {
-            const moveResult = creep.moveTo(controller, { visualizePathStyle: { stroke: config.colors.paths.upgrading }, });
-            if (moveResult !== OK) {
-                console.log(`${creep.name} failed to move to controller: ${moveResult}`);
-            }
-        }
-        else if (result !== OK) {
-            console.log(`${creep.name} failed to upgrade controller: ${result}`);
-        }
-    },
-    /**
-     * Pick up energy from the ground or containers/storage if none is available on the ground.
-     * @param {Creep} creep - The creep performing the action.
-     * @param {Resource | StructureContainer | StructureStorage} [target] - The target to pick up energy from.
-     */
-    pickupEnergy(creep, target) {
-        if (target instanceof Resource) {
-            if (creep.pickup(target) === ERR_NOT_IN_RANGE) {
-                creep.moveTo(target, { visualizePathStyle: { stroke: config.colors.paths.pickingUp } });
-            }
-            return;
-        }
-        if (target instanceof StructureContainer ||
-            target instanceof StructureStorage) {
-            if (creep.withdraw(target, RESOURCE_ENERGY) === ERR_NOT_IN_RANGE) {
-                creep.moveTo(target, { visualizePathStyle: { stroke: config.colors.paths.pickingUp } });
-            }
-            return;
-        }
-        // Default behavior: Find dropped resources or containers
-        const droppedResources = creep.room.find(FIND_DROPPED_RESOURCES, {
-            filter: resource => resource.resourceType === RESOURCE_ENERGY,
-        });
-        if (droppedResources.length > 0) {
-            this.pickupEnergy(creep, droppedResources[0]);
-        }
-        else {
-            const containers = creep.room.find(FIND_STRUCTURES, {
-                filter: structure => (structure.structureType === STRUCTURE_CONTAINER || structure.structureType === STRUCTURE_STORAGE) &&
-                    structure.store.getUsedCapacity(RESOURCE_ENERGY) > 0,
-            });
-            if (containers.length > 0) {
-                this.pickupEnergy(creep, containers[0]);
-            }
-            else {
-                creep.say("❌ No energy sources");
-            }
-        }
-    },
-    /**
-     * Mine energy from a source, prioritizing standing on a container adjacent to the source.
-     * @param {Creep} creep - The creep performing the action.
-     * @param {Source} [target] - The source to mine.
-     */
-    mine(creep, target) {
-        const source = target || creep.pos.findClosestByPath(FIND_SOURCES);
-        if (!source) {
-            creep.say("❌ No source");
-            return;
-        }
-        const containers = creep.room.find(FIND_STRUCTURES, {
-            filter: structure => structure.structureType === STRUCTURE_CONTAINER &&
-                structure.pos.inRangeTo(source.pos, 1),
-        });
-        if (containers.length > 0) {
-            const container = containers[0];
-            if (!creep.pos.isEqualTo(container.pos)) {
-                creep.moveTo(container, { visualizePathStyle: { stroke: config.colors.paths.pickingUp } });
-                creep.say("📦 Moving to container");
-                return;
-            }
-        }
-        const result = creep.harvest(source);
-        if (result === ERR_NOT_IN_RANGE) {
-            creep.moveTo(source, { visualizePathStyle: { stroke: config.colors.paths.pickingUp } });
-        }
-        else if (result !== OK) {
-            console.log(`${creep.name} failed to mine: ${result}`);
-        }
-    },
-    /**
-     * Deliver energy to a structure.
-     * @param {Creep} creep - The creep performing the action.
-     * @param {Structure} [target] - The target structure to supply energy to.
-     */
-    supply(creep, target) {
-        if (target) {
-            if (creep.transfer(target, RESOURCE_ENERGY) === ERR_NOT_IN_RANGE) {
-                creep.moveTo(target, { visualizePathStyle: { stroke: config.colors.paths.delivering } });
-            }
-            return;
-        }
-        const targets = creep.room.find(FIND_MY_STRUCTURES, {
-            filter: structure => (structure.structureType === STRUCTURE_SPAWN ||
-                structure.structureType === STRUCTURE_EXTENSION ||
-                structure.structureType === STRUCTURE_TOWER) &&
-                structure.store.getFreeCapacity(RESOURCE_ENERGY) > 0,
-        });
-        if (targets.length > 0) {
-            this.supply(creep, targets[0]);
-        }
-        else {
-            creep.say("❌ No supply targets");
-        }
-    },
-    /**
-     * Build a construction site.
-     * @param {Creep} creep - The creep performing the action.
-     * @param {ConstructionSite} [target] - The construction site to build.
-     */
-    build(creep, target) {
-        if (target) {
-            if (creep.build(target) === ERR_NOT_IN_RANGE) {
-                creep.moveTo(target, { visualizePathStyle: { stroke: config.colors.paths.upgrading } });
-            }
-            return;
-        }
-        const constructionSites = creep.room.find(FIND_CONSTRUCTION_SITES);
-        if (constructionSites.length > 0) {
-            this.build(creep, constructionSites[0]);
-        }
-        else {
-            creep.say("❌ No construction sites");
-        }
-    },
-    /**
-     * Repair a damaged structure.
-     * @param {Creep} creep - The creep performing the action.
-     * @param {Structure} [target] - The structure to repair.
-     */
-    repair(creep, target) {
-        if (target) {
-            if (creep.repair(target) === ERR_NOT_IN_RANGE) {
-                creep.moveTo(target, { visualizePathStyle: { stroke: config.colors.paths.repairing } });
-            }
-            return;
-        }
-        const damagedStructures = creep.room.find(FIND_STRUCTURES, {
-            filter: structure => structure.hits < structure.hitsMax,
-        });
-        if (damagedStructures.length > 0) {
-            const mostDamaged = _.min(damagedStructures, 'hits');
-            this.repair(creep, mostDamaged);
-        }
-        else {
-            creep.say("❌ No repairs needed");
-        }
-    },
-};
-
-var roleDummy = {
-    run(creep) {
-        // Ensure the creep has a target source assigned
-        if (!creep.memory.target) {
-            const roomMemory = Memory.rooms[creep.room.name];
-            const availableSource = Object.values(roomMemory.sources).find(source => {
-                return source.vacancies > source.creeps.length;
-            });
-            if (availableSource) {
-                creep.memory.target = availableSource.id;
-                roomMemory.sources[availableSource.id].creeps.push(creep.name);
-                console.log(`[${creep.name}] Assigned to source: ${availableSource.id}`);
-            }
-            else {
-                console.log(`[${creep.name}] No available sources with vacancies.`);
-                return;
-            }
-        }
-        // Check harvesting state
-        if (!creep.memory.mining && creep.store[RESOURCE_ENERGY] === 0) {
-            creep.memory.mining = true;
-            creep.say("⛏ Harvesting");
-        }
-        if (creep.memory.mining && creep.store.getFreeCapacity() === 0) {
-            creep.memory.mining = false;
-            creep.say("♿ Delivering");
-        }
-        if (creep.memory.mining) {
-            // Mining logic
-            const target = Game.getObjectById(creep.memory.target);
-            if (!target) {
-                console.log(`[${creep.name}] Invalid target: ${creep.memory.target}`);
-                delete creep.memory.target; // Clear invalid target
-                return;
-            }
-            actions.mine(creep, target);
-        }
-        else {
-            // Delivery logic
-            const spawn = creep.room.find(FIND_MY_SPAWNS)[0];
-            if (!spawn) {
-                console.log(`[${creep.name}] No spawn found in room: ${creep.room.name}`);
-                return;
-            }
-            actions.supply(creep, spawn);
-        }
-    }
-};
-
-var roleMiner = {
-    run(creep) {
-        // Ensure the creep has a target assigned
-        if (!creep.memory.target) {
-            // Assign the creep to a source with vacancies
-            const roomMemory = Memory.rooms[creep.room.name];
-            const availableSource = Object.values(roomMemory.sources).find(source => {
-                return source.vacancies > source.creeps.length;
-            });
-            if (availableSource) {
-                creep.memory.target = availableSource.id;
-                roomMemory.sources[availableSource.id].creeps.push(creep.name);
-                console.log(`[${creep.name}] Assigned to source: ${availableSource.id}`);
-            }
-            else {
-                console.log(`[${creep.name}] No available sources with vacancies.`);
-                return;
-            }
-        }
-        // Mining logic
-        if (creep.memory.target) {
-            const target = Game.getObjectById(creep.memory.target);
-            if (!target) {
-                console.log(`[${creep.name}] Invalid target: ${creep.memory.target}`);
-                delete creep.memory.target; // Clear invalid target
-                return;
-            }
-            actions.mine(creep, target);
-        }
-    },
-};
-
-var roleHauler = {
-    run(creep) {
-        const roomMemory = Memory.rooms[creep.room.name];
-        if (!roomMemory) {
-            console.log(`[${creep.name}] No memory for room: ${creep.room.name}`);
-            return;
-        }
-        // State transitions: picking up or supplying
-        if (creep.memory.pickingUp && creep.store.getFreeCapacity() === 0) {
-            creep.memory.pickingUp = false;
-            creep.say("♿ Delivering");
-        }
-        if (!creep.memory.pickingUp && creep.store.getUsedCapacity() === 0) {
-            creep.memory.pickingUp = true;
-            creep.say("⬆ Picking Up");
-        }
-        // Handle picking up energy
-        if (creep.memory.pickingUp) {
-            actions.pickupEnergy(creep);
-        }
-        else {
-            // Do supply
-            actions.supply(creep);
-        }
-    },
-};
-// deliverToSpawn(creep: Creep) {
-//     const target = creep.room.find(FIND_MY_STRUCTURES, {
-//         filter: structure =>
-//             (structure.structureType === STRUCTURE_SPAWN || structure.structureType === STRUCTURE_EXTENSION) &&
-//             structure.store.getFreeCapacity(RESOURCE_ENERGY) > 0,
-//     })[0];
-//     if (target) {
-//         if (creep.transfer(target, RESOURCE_ENERGY) === ERR_NOT_IN_RANGE) {
-//             creep.moveTo(target, { visualizePathStyle: { stroke: "#ffffff" } });
-//         }
-//     } else {
-//         creep.say("❌ No spawn target");
-//     }
-// },
-// buildOrUpgrade(creep: Creep) {
-//     const constructionSites = creep.room.find(FIND_CONSTRUCTION_SITES);
-//     const controller = creep.room.controller;
-//     if (constructionSites.length > 0) {
-//         if (creep.build(constructionSites[0]) === ERR_NOT_IN_RANGE) {
-//             creep.moveTo(constructionSites[0], { visualizePathStyle: { stroke: "#ffaa00" } });
-//         }
-//     } else if (controller) {
-//         this.upgradeController(creep);
-//     } else {
-//         creep.say("❌ No controller");
-//     }
-// },
-// upgradeController(creep: Creep) {
-//     const controller = creep.room.controller;
-//     if (controller) {
-//         console.log(`${creep.name} upgrading ${controller}`);
-//         const result = creep.upgradeController(controller);
-//         if (result === ERR_NOT_IN_RANGE) {
-//             const moveResult = creep.moveTo(controller, { visualizePathStyle: { stroke: "#ffaa00" } });
-//             if (moveResult !== OK) {
-//                 console.log(`${creep.name} failed to move to controller: ${moveResult}`);
-//             }
-//         } else if (result !== OK) {
-//             console.log(`${creep.name} failed to upgrade controller: ${result}`);
-//         }
-//     } else {
-//         creep.say("❌ No controller");
-//     }
-// },
-// getPriorityStructures(room: Room): Structure<StructureConstant>[] {
-//     const structures = room.find(FIND_MY_STRUCTURES, {
-//         filter: structure =>
-//             structure.structureType === STRUCTURE_SPAWN ||
-//             structure.structureType === STRUCTURE_EXTENSION ||
-//             structure.structureType === STRUCTURE_TOWER ||
-//             structure.structureType === STRUCTURE_STORAGE,
-//     });
-//     const priorityOrder: Record<StructureConstant, number> = {
-//         [STRUCTURE_SPAWN]: 1,
-//         [STRUCTURE_EXTENSION]: 2,
-//         [STRUCTURE_TOWER]: 3,
-//         [STRUCTURE_CONTROLLER]: 4,
-//         [STRUCTURE_CONTAINER]: 5,
-//         [STRUCTURE_STORAGE]: 6,
-//         [STRUCTURE_RAMPART]: 99,
-//         [STRUCTURE_ROAD]: 99,
-//         [STRUCTURE_LINK]: 99,
-//         [STRUCTURE_WALL]: 99,
-//         [STRUCTURE_OBSERVER]: 99,
-//         [STRUCTURE_POWER_SPAWN]: 99,
-//         [STRUCTURE_EXTRACTOR]: 99,
-//         [STRUCTURE_LAB]: 99,
-//         [STRUCTURE_TERMINAL]: 99,
-//         [STRUCTURE_NUKER]: 99,
-//         [STRUCTURE_FACTORY]: 99,
-//         [STRUCTURE_KEEPER_LAIR]: 99,
-//         [STRUCTURE_POWER_BANK]: 99,
-//         [STRUCTURE_INVADER_CORE]: 99,
-//         [STRUCTURE_PORTAL]: 99,
-//     };
-//     return structures.sort((a, b) => (priorityOrder[a.structureType] || 99) - (priorityOrder[b.structureType] || 99));
-// },
-// assignHaulerSubRoles() {
-//     type SubRole = "spawnSupplier" | "upgrader" | "builder";
-//     const allHaulers = _.filter(Game.creeps, creep => creep.memory.role === "hauler");
-//     // Count haulers for each subRole
-//     const subRoleCounts: Record<SubRole, number> = {
-//         spawnSupplier: 0,
-//         upgrader: 0,
-//         builder: 0,
-//     };
-//     allHaulers.forEach(creep => {
-//         if (creep.memory.subRole && creep.memory.subRole in subRoleCounts) {
-//             const subRole = creep.memory.subRole as SubRole; // Ensure TypeScript knows this is a SubRole
-//             subRoleCounts[subRole] += 1;
-//         }
-//     });
-//     // Assign subRoles dynamically if needed
-//     const desiredDistribution: Record<SubRole, number> = {
-//         spawnSupplier: Math.ceil(allHaulers.length / 3),
-//         upgrader: Math.ceil(allHaulers.length / 3),
-//         builder: Math.ceil(allHaulers.length / 3),
-//     };
-//     allHaulers.forEach(creep => {
-//         const currentSubRole = creep.memory.subRole as SubRole;
-//         if (
-//             !currentSubRole ||
-//             subRoleCounts[currentSubRole] > desiredDistribution[currentSubRole]
-//         ) {
-//             // Find the least-represented subRole
-//             const newSubRole = Object.entries(desiredDistribution)
-//                 .sort(([, countA], [, countB]) => countA - countB)
-//                 .find(([role, count]) => subRoleCounts[role as SubRole] < count)?.[0] as SubRole;
-//             if (newSubRole) {
-//                 // Assign new subRole
-//                 creep.memory.subRole = newSubRole;
-//                 subRoleCounts[newSubRole] += 1;
-//                 console.log(`[Assign] ${creep.name} assigned to subRole: ${newSubRole}`);
-//             }
-//         }
-//     });
-// }
-
-let slaveNumber = 0;
-var roleSlave = {
-    run(creep) {
-        // Ensure subRole is assigned
-        if (!creep.memory.subRole) {
-            this.assignSlaveSubRoles();
-        }
-        const damagedStructures = creep.room.find(FIND_STRUCTURES, {
-            filter: structure => structure.hits < structure.hitsMax &&
-                structure.structureType !== STRUCTURE_WALL,
-        });
-        const damagedWalls = creep.room.find(FIND_STRUCTURES, {
-            filter: structure => structure.hits < structure.hitsMax &&
-                structure.structureType === STRUCTURE_WALL,
-        });
-        const constructionSites = creep.room.find(FIND_CONSTRUCTION_SITES);
-        // State transitions: picking up or supplying
-        if (creep.memory.pickingUp && creep.store.getFreeCapacity() === 0) {
-            creep.memory.pickingUp = false;
-            creep.say("♿ Working");
-        }
-        if (!creep.memory.pickingUp && creep.store.getUsedCapacity() === 0) {
-            creep.memory.pickingUp = true;
-            creep.say("⬆ Picking Up");
-        }
-        // Handle picking up energy
-        if (creep.memory.pickingUp) {
-            actions.pickupEnergy(creep);
-        }
-        else {
-            // Execute actions based on the subRole
-            switch (creep.memory.subRole) {
-                case "repairer":
-                    if (damagedStructures.length > 0) {
-                        const target = _.min(damagedStructures, "hits");
-                        actions.repair(creep, target);
-                    }
-                    else {
-                        creep.say("❌ No repairs needed");
-                    }
-                    break;
-                case "wallRepairer":
-                    if (damagedWalls.length > 0) {
-                        const target = _.min(damagedWalls, "hits");
-                        actions.repair(creep, target);
-                    }
-                    else {
-                        creep.say("❌ No wall repairs needed");
-                    }
-                    break;
-                case "builder":
-                    if (constructionSites.length > 0) {
-                        const target = constructionSites[0];
-                        actions.build(creep, target);
-                    }
-                    else {
-                        creep.say("❌ No construction sites");
-                    }
-                    break;
-                case "upgrader":
-                    actions.upgradeController(creep);
-                    break;
-                default:
-                    console.log(`[${creep.name}] Invalid or missing subRole.`);
-            }
-        }
-    },
-    assignSlaveSubRoles() {
-        const allSlaves = _.filter(Game.creeps, creep => creep.memory.role === config.roles.slave.role);
-        if (allSlaves.length === 0) {
-            console.log("No slaves available to assign subRoles.");
-            return;
-        }
-        const room = allSlaves[0].room;
-        // Define subRole counts
-        const subRoleCounts = {
-            repairer: 0,
-            wallRepairer: 0,
-            builder: 0,
-            upgrader: 0,
-        };
-        // Count existing subRoles
-        allSlaves.forEach(creep => {
-            const subRole = creep.memory.subRole;
-            if (subRole && subRole in subRoleCounts) {
-                subRoleCounts[subRole] += 1;
-            }
-        });
-        const constructionSites = room.find(FIND_CONSTRUCTION_SITES);
-        const damagedStructures = room.find(FIND_STRUCTURES, {
-            filter: structure => structure.hits < structure.hitsMax &&
-                structure.structureType !== STRUCTURE_WALL,
-        });
-        const damagedWalls = room.find(FIND_STRUCTURES, {
-            filter: structure => structure.hits < structure.hitsMax &&
-                structure.structureType === STRUCTURE_WALL,
-        });
-        // Desired distribution of slaves
-        const repWalls = damagedWalls.length || 0;
-        const repStructs = damagedStructures.length || 0;
-        const constSites = constructionSites.length || 0;
-        const defUpgraders = config.roles.slave.defaultUpgraderCount;
-        const desiredDistribution = {
-            wallRepairer: repWalls,
-            repairer: repStructs,
-            builder: constSites,
-            upgrader: config.roles.slave.defaultUpgraderCount, // Default number of upgraders
-        };
-        slaveNumber += repWalls + repStructs + constSites + defUpgraders;
-        // Reassign subRoles if needed
-        allSlaves.forEach(creep => {
-            var _a;
-            const currentSubRole = creep.memory.subRole;
-            if (!currentSubRole ||
-                subRoleCounts[currentSubRole] > desiredDistribution[currentSubRole]) {
-                // Find the least-represented subRole
-                const newSubRole = (_a = Object.entries(desiredDistribution)
-                    .sort(([, countA], [, countB]) => countA - countB)
-                    .find(([role, count]) => subRoleCounts[role] < count)) === null || _a === void 0 ? void 0 : _a[0];
-                if (newSubRole) {
-                    // Assign new subRole
-                    creep.memory.subRole = newSubRole;
-                    subRoleCounts[newSubRole] += 1;
-                    console.log(`[Assign] ${creep.name} assigned to subRole: ${newSubRole}`);
-                }
-            }
-        });
-    },
-    slavesNeeded() {
-        return slaveNumber;
-    },
-};
-
-class RoomMemoryManager {
-    static initializeRoomMemory(room) {
-        var _a, _b;
-        var _c, _d;
-        (_a = Memory.rooms) !== null && _a !== void 0 ? _a : (Memory.rooms = {});
-        (_b = (_c = Memory.rooms)[_d = room.name]) !== null && _b !== void 0 ? _b : (_c[_d] = {
-            sources: {},
-            structures: {},
-            creeps: {},
-            lastAnalyzed: 0,
-            initialized: false,
-            spawnQueue: [],
-        });
-        console.log(`Initialized memory for room: ${room.name}`);
-        const roomMemory = Memory.rooms[room.name];
-        // Initialize sources
-        room.find(FIND_SOURCES).forEach(source => {
-            var _a;
-            var _b, _c;
-            (_a = (_b = roomMemory.sources)[_c = source.id]) !== null && _a !== void 0 ? _a : (_b[_c] = {
-                id: source.id,
-                vacancies: 1,
-                creeps: [],
-            });
-            console.log(`Source initialized: ${source.id}`);
-        });
-        // Initialize structures
-        room.find(FIND_STRUCTURES).forEach(structure => {
-            var _a;
-            var _b, _c;
-            (_a = (_b = roomMemory.structures)[_c = structure.id]) !== null && _a !== void 0 ? _a : (_b[_c] = {
-                id: structure.id,
-                type: structure.structureType,
-                creeps: [],
-            });
-        });
-        // Set it initialized
-        Memory.rooms[room.name].initialized = true;
-    }
-    static addCreepToRoom(room, creep) {
-        const roomMemory = Memory.rooms[room.name];
-        roomMemory.creeps[creep.name] = {
-            id: creep.name,
-            role: creep.memory.role,
-            target: creep.memory.target,
-        };
-        // Assign the creep to a target if specified and not already assigned
-        if (creep.memory.target) {
-            const roomMemory = Memory.rooms[room.name];
-            // Check if the creep is already assigned to the target
-            const isAlreadyAssigned = Object.values(roomMemory.sources).some(source => source.creeps.includes(creep.name)) || Object.values(roomMemory.structures).some(structure => structure.creeps.includes(creep.name));
-            if (!isAlreadyAssigned) {
-                this.assignCreepToTarget(room, creep.name, creep.memory.target);
-            }
-            else {
-                console.log(`[${creep.name}] Already assigned to target: ${creep.memory.target}`);
-            }
-        }
-    }
-    static removeCreepFromRoom(room, creepName) {
-        const roomMemory = Memory.rooms[room.name];
-        // Remove the creep from the creeps list
-        delete roomMemory.creeps[creepName];
-        // Remove the creep from all sources
-        Object.values(roomMemory.sources).forEach(sourceMemory => {
-            sourceMemory.creeps = sourceMemory.creeps.filter(name => name !== creepName);
-        });
-        // Remove the creep from all structures
-        Object.values(roomMemory.structures).forEach(structureMemory => {
-            structureMemory.creeps = structureMemory.creeps.filter(name => name !== creepName);
-        });
-    }
-    static assignCreepToTarget(room, creepName, targetId) {
-        const roomMemory = Memory.rooms[room.name];
-        // Determine target type and assign creep
-        if (roomMemory.sources[targetId]) {
-            roomMemory.sources[targetId].creeps.push(creepName);
-        }
-        else if (roomMemory.structures[targetId]) {
-            roomMemory.structures[targetId].creeps.push(creepName);
-        }
-    }
-    static cleanupExpiredCreeps(room) {
-        const roomMemory = Memory.rooms[room.name];
-        for (const creepName in roomMemory.creeps) {
-            if (!Game.creeps[creepName]) {
-                console.log(`Cleaning up expired creep: ${creepName}`);
-                this.removeCreepFromRoom(room, creepName);
-            }
-        }
-        // Cleanup expired workers from creeps too
-        for (const name in Memory.creeps) {
-            if (!Game.creeps[name]) {
-                delete Memory.creeps[name];
-            }
-        }
-    }
-}
 
 var commonjsGlobal = typeof globalThis !== 'undefined' ? globalThis : typeof window !== 'undefined' ? window : typeof global !== 'undefined' ? global : typeof self !== 'undefined' ? self : {};
 
@@ -13021,7 +12397,721 @@ var lodash = {exports: {}};
 }.call(commonjsGlobal));
 }(lodash, lodash.exports));
 
-var _$1 = lodash.exports;
+var _ = lodash.exports;
+
+const actions = {
+    moveToAssignedRoom(creep) {
+        const assignedRoom = Memory.creeps[creep.name].roomAssignment;
+        if (!assignedRoom) {
+            console.log(`[Move] Error: no assigned room`);
+        }
+        else {
+            if (creep.room.name !== assignedRoom) {
+                // Move to the center of the target room
+                const exitDir = creep.room.findExitTo(assignedRoom);
+                if (exitDir === ERR_NO_PATH || exitDir === ERR_INVALID_ARGS) {
+                    console.log(`[${creep.name}] No valid path to room: ${assignedRoom}`);
+                    return;
+                }
+                const exit = creep.pos.findClosestByPath(exitDir);
+                if (exit) {
+                    creep.moveTo(exit, { visualizePathStyle: { stroke: config.colors.paths.delivering } });
+                    creep.say(`➡️ ${assignedRoom}`);
+                }
+                else {
+                    console.log(`[${creep.name}] Could not find an exit to room: ${assignedRoom}`);
+                }
+            }
+        }
+    },
+    /**
+     * Upgrade the room controller.
+     * @param {Creep} creep - The creep performing the action.
+     * @param {StructureController} [target] - The controller to upgrade.
+     */
+    upgradeController(creep, target) {
+        this.moveToAssignedRoom(creep);
+        const controller = target || creep.room.controller;
+        if (!controller) {
+            creep.say("❌ No controller");
+            return;
+        }
+        if (creep.store[RESOURCE_ENERGY] === 0) {
+            creep.say("❌ No energy");
+            return;
+        }
+        console.log(`${creep.name} upgrading ${controller}`);
+        const result = creep.upgradeController(controller);
+        if (result === ERR_NOT_IN_RANGE) {
+            const moveResult = creep.moveTo(controller, { visualizePathStyle: { stroke: config.colors.paths.upgrading }, });
+            if (moveResult !== OK) {
+                console.log(`${creep.name} failed to move to controller: ${moveResult}`);
+            }
+        }
+        else if (result !== OK) {
+            console.log(`${creep.name} failed to upgrade controller: ${result}`);
+        }
+    },
+    /**
+     * Pick up energy from the ground or containers/storage if none is available on the ground.
+     * @param {Creep} creep - The creep performing the action.
+     * @param {Resource | StructureContainer | StructureStorage} [target] - The target to pick up energy from.
+     */
+    pickupEnergy(creep, target) {
+        this.moveToAssignedRoom(creep);
+        if (target instanceof Resource) {
+            if (creep.pickup(target) === ERR_NOT_IN_RANGE) {
+                creep.moveTo(target, { visualizePathStyle: { stroke: config.colors.paths.pickingUp } });
+            }
+            return;
+        }
+        if (target instanceof StructureContainer ||
+            target instanceof StructureStorage) {
+            if (creep.withdraw(target, RESOURCE_ENERGY) === ERR_NOT_IN_RANGE) {
+                creep.moveTo(target, { visualizePathStyle: { stroke: config.colors.paths.pickingUp } });
+            }
+            return;
+        }
+        // Default behavior: Find dropped resources or containers
+        const droppedResources = creep.room.find(FIND_DROPPED_RESOURCES, {
+            filter: resource => resource.resourceType === RESOURCE_ENERGY,
+        });
+        if (droppedResources.length > 0) {
+            this.pickupEnergy(creep, droppedResources[0]);
+        }
+        else {
+            const containers = creep.room.find(FIND_STRUCTURES, {
+                filter: structure => (structure.structureType === STRUCTURE_CONTAINER || structure.structureType === STRUCTURE_STORAGE) &&
+                    structure.store.getUsedCapacity(RESOURCE_ENERGY) > 0,
+            });
+            if (containers.length > 0) {
+                this.pickupEnergy(creep, containers[0]);
+            }
+            else {
+                creep.say("❌ No energy sources");
+            }
+        }
+    },
+    /**
+     * Mine energy from a source, prioritizing standing on a container adjacent to the source.
+     * @param {Creep} creep - The creep performing the action.
+     * @param {Source} [target] - The source to mine.
+     */
+    mine(creep, target) {
+        this.moveToAssignedRoom(creep);
+        const source = target || creep.pos.findClosestByPath(FIND_SOURCES);
+        if (!source) {
+            creep.say("❌ No source");
+            return;
+        }
+        const containers = creep.room.find(FIND_STRUCTURES, {
+            filter: structure => structure.structureType === STRUCTURE_CONTAINER &&
+                structure.pos.inRangeTo(source.pos, 1),
+        });
+        if (containers.length > 0) {
+            const container = containers[0];
+            if (!creep.pos.isEqualTo(container.pos)) {
+                creep.moveTo(container, { visualizePathStyle: { stroke: config.colors.paths.pickingUp } });
+                creep.say("📦 Moving to container");
+                return;
+            }
+        }
+        const result = creep.harvest(source);
+        if (result === ERR_NOT_IN_RANGE) {
+            creep.moveTo(source, { visualizePathStyle: { stroke: config.colors.paths.pickingUp } });
+        }
+        else if (result !== OK) {
+            console.log(`${creep.name} failed to mine: ${result}`);
+        }
+    },
+    /**
+     * Deliver energy to a structure.
+     * @param {Creep} creep - The creep performing the action.
+     * @param {Structure} [target] - The target structure to supply energy to.
+     */
+    supply(creep, target) {
+        this.moveToAssignedRoom(creep);
+        if (target) {
+            if (creep.transfer(target, RESOURCE_ENERGY) === ERR_NOT_IN_RANGE) {
+                creep.moveTo(target, { visualizePathStyle: { stroke: config.colors.paths.delivering } });
+            }
+            return;
+        }
+        const targets = creep.room.find(FIND_MY_STRUCTURES, {
+            filter: structure => (structure.structureType === STRUCTURE_SPAWN ||
+                structure.structureType === STRUCTURE_EXTENSION ||
+                structure.structureType === STRUCTURE_TOWER) &&
+                structure.store.getFreeCapacity(RESOURCE_ENERGY) > 0,
+        });
+        if (targets.length > 0) {
+            this.supply(creep, targets[0]);
+        }
+        else {
+            creep.say("❌ No supply targets");
+        }
+    },
+    /**
+     * Build a construction site.
+     * @param {Creep} creep - The creep performing the action.
+     * @param {ConstructionSite} [target] - The construction site to build.
+     */
+    build(creep, target) {
+        this.moveToAssignedRoom(creep);
+        if (target) {
+            if (creep.build(target) === ERR_NOT_IN_RANGE) {
+                creep.moveTo(target, { visualizePathStyle: { stroke: config.colors.paths.upgrading } });
+            }
+            return;
+        }
+        const constructionSites = creep.room.find(FIND_CONSTRUCTION_SITES);
+        if (constructionSites.length > 0) {
+            this.build(creep, constructionSites[0]);
+        }
+        else {
+            creep.say("❌ No construction sites");
+        }
+    },
+    /**
+     * Repair a damaged structure.
+     * @param {Creep} creep - The creep performing the action.
+     * @param {Structure} [target] - The structure to repair.
+     */
+    repair(creep, target) {
+        this.moveToAssignedRoom(creep);
+        if (target) {
+            if (creep.repair(target) === ERR_NOT_IN_RANGE) {
+                creep.moveTo(target, { visualizePathStyle: { stroke: config.colors.paths.repairing } });
+            }
+            return;
+        }
+        const damagedStructures = creep.room.find(FIND_STRUCTURES, {
+            filter: structure => structure.hits < structure.hitsMax,
+        });
+        if (damagedStructures.length > 0) {
+            const mostDamaged = _.min(damagedStructures, 'hits');
+            this.repair(creep, mostDamaged);
+        }
+        else {
+            creep.say("❌ No repairs needed");
+        }
+    },
+};
+
+var roleDummy = {
+    run(creep) {
+        // Ensure the creep has a target source assigned
+        if (!creep.memory.target) {
+            const roomMemory = Memory.rooms[creep.room.name];
+            const availableSource = Object.values(roomMemory.sources).find(source => {
+                return source.vacancies > source.creeps.length;
+            });
+            if (availableSource) {
+                creep.memory.target = availableSource.id;
+                roomMemory.sources[availableSource.id].creeps.push(creep.name);
+                console.log(`[${creep.name}] Assigned to source: ${availableSource.id}`);
+            }
+            else {
+                console.log(`[${creep.name}] No available sources with vacancies.`);
+                return;
+            }
+        }
+        // Check harvesting state
+        if (!creep.memory.mining && creep.store[RESOURCE_ENERGY] === 0) {
+            creep.memory.mining = true;
+            creep.say("⛏ Harvesting");
+        }
+        if (creep.memory.mining && creep.store.getFreeCapacity() === 0) {
+            creep.memory.mining = false;
+            creep.say("♿ Delivering");
+        }
+        if (creep.memory.mining) {
+            // Mining logic
+            const target = Game.getObjectById(creep.memory.target);
+            if (!target) {
+                console.log(`[${creep.name}] Invalid target: ${creep.memory.target}`);
+                delete creep.memory.target; // Clear invalid target
+                return;
+            }
+            actions.mine(creep, target);
+        }
+        else {
+            // Delivery logic
+            const spawn = creep.room.find(FIND_MY_SPAWNS)[0];
+            if (!spawn) {
+                console.log(`[${creep.name}] No spawn found in room: ${creep.room.name}`);
+                return;
+            }
+            actions.supply(creep, spawn);
+        }
+    }
+};
+
+var roleMiner = {
+    run(creep) {
+        // Ensure the creep has a target assigned
+        if (!creep.memory.target) {
+            // Assign the creep to a source with vacancies
+            const roomMemory = Memory.rooms[creep.room.name];
+            const availableSource = Object.values(roomMemory.sources).find(source => {
+                return source.vacancies > source.creeps.length;
+            });
+            if (availableSource) {
+                creep.memory.target = availableSource.id;
+                roomMemory.sources[availableSource.id].creeps.push(creep.name);
+                console.log(`[${creep.name}] Assigned to source: ${availableSource.id}`);
+            }
+            else {
+                console.log(`[${creep.name}] No available sources with vacancies.`);
+                return;
+            }
+        }
+        // Mining logic
+        if (creep.memory.target) {
+            const targetSource = Game.getObjectById(creep.memory.target);
+            if (!targetSource) {
+                console.log(`[${creep.name}] Invalid target: ${creep.memory.target}`);
+                delete creep.memory.target; // Clear invalid target
+                return;
+            }
+            // Check for containers near the source
+            const containers = targetSource.pos.findInRange(FIND_STRUCTURES, 1, {
+                filter: structure => structure.structureType === STRUCTURE_CONTAINER,
+            });
+            const unoccupiedContainer = containers.find(container => {
+                // Ensure no other miner is sitting on this container
+                return !_.some(Game.creeps, otherCreep => {
+                    return (otherCreep.memory.role === "miner" &&
+                        otherCreep.memory.container === container.id);
+                });
+            });
+            if (unoccupiedContainer) {
+                // Move to the container and mine from there
+                if (!creep.memory.container || creep.memory.container !== unoccupiedContainer.id) {
+                    creep.memory.container = unoccupiedContainer.id;
+                    console.log(`[${creep.name}] Assigned to container: ${unoccupiedContainer.id}`);
+                }
+                if (!creep.pos.isEqualTo(unoccupiedContainer.pos)) {
+                    creep.moveTo(unoccupiedContainer, {
+                        visualizePathStyle: { stroke: "#ffaa00" },
+                    });
+                }
+                else {
+                    actions.mine(creep, targetSource);
+                }
+            }
+            else {
+                // If no container is available, mine from a free vacancy
+                console.log(`[${creep.name}] No containers available, mining at free vacancy.`);
+                actions.mine(creep, targetSource);
+            }
+        }
+    },
+};
+
+var roleHauler = {
+    run(creep) {
+        const roomMemory = Memory.rooms[creep.room.name];
+        if (!roomMemory) {
+            console.log(`[${creep.name}] No memory for room: ${creep.room.name}`);
+            return;
+        }
+        // State transitions: picking up or supplying
+        if (creep.memory.pickingUp && creep.store.getFreeCapacity() === 0) {
+            creep.memory.pickingUp = false;
+            creep.say("♿ Delivering");
+        }
+        if (!creep.memory.pickingUp && creep.store.getUsedCapacity() === 0) {
+            creep.memory.pickingUp = true;
+            creep.say("⬆ Picking Up");
+        }
+        // Handle picking up energy
+        if (creep.memory.pickingUp) {
+            actions.pickupEnergy(creep);
+        }
+        else {
+            // Do supply
+            actions.supply(creep);
+        }
+    },
+};
+// deliverToSpawn(creep: Creep) {
+//     const target = creep.room.find(FIND_MY_STRUCTURES, {
+//         filter: structure =>
+//             (structure.structureType === STRUCTURE_SPAWN || structure.structureType === STRUCTURE_EXTENSION) &&
+//             structure.store.getFreeCapacity(RESOURCE_ENERGY) > 0,
+//     })[0];
+//     if (target) {
+//         if (creep.transfer(target, RESOURCE_ENERGY) === ERR_NOT_IN_RANGE) {
+//             creep.moveTo(target, { visualizePathStyle: { stroke: "#ffffff" } });
+//         }
+//     } else {
+//         creep.say("❌ No spawn target");
+//     }
+// },
+// buildOrUpgrade(creep: Creep) {
+//     const constructionSites = creep.room.find(FIND_CONSTRUCTION_SITES);
+//     const controller = creep.room.controller;
+//     if (constructionSites.length > 0) {
+//         if (creep.build(constructionSites[0]) === ERR_NOT_IN_RANGE) {
+//             creep.moveTo(constructionSites[0], { visualizePathStyle: { stroke: "#ffaa00" } });
+//         }
+//     } else if (controller) {
+//         this.upgradeController(creep);
+//     } else {
+//         creep.say("❌ No controller");
+//     }
+// },
+// upgradeController(creep: Creep) {
+//     const controller = creep.room.controller;
+//     if (controller) {
+//         console.log(`${creep.name} upgrading ${controller}`);
+//         const result = creep.upgradeController(controller);
+//         if (result === ERR_NOT_IN_RANGE) {
+//             const moveResult = creep.moveTo(controller, { visualizePathStyle: { stroke: "#ffaa00" } });
+//             if (moveResult !== OK) {
+//                 console.log(`${creep.name} failed to move to controller: ${moveResult}`);
+//             }
+//         } else if (result !== OK) {
+//             console.log(`${creep.name} failed to upgrade controller: ${result}`);
+//         }
+//     } else {
+//         creep.say("❌ No controller");
+//     }
+// },
+// getPriorityStructures(room: Room): Structure<StructureConstant>[] {
+//     const structures = room.find(FIND_MY_STRUCTURES, {
+//         filter: structure =>
+//             structure.structureType === STRUCTURE_SPAWN ||
+//             structure.structureType === STRUCTURE_EXTENSION ||
+//             structure.structureType === STRUCTURE_TOWER ||
+//             structure.structureType === STRUCTURE_STORAGE,
+//     });
+//     const priorityOrder: Record<StructureConstant, number> = {
+//         [STRUCTURE_SPAWN]: 1,
+//         [STRUCTURE_EXTENSION]: 2,
+//         [STRUCTURE_TOWER]: 3,
+//         [STRUCTURE_CONTROLLER]: 4,
+//         [STRUCTURE_CONTAINER]: 5,
+//         [STRUCTURE_STORAGE]: 6,
+//         [STRUCTURE_RAMPART]: 99,
+//         [STRUCTURE_ROAD]: 99,
+//         [STRUCTURE_LINK]: 99,
+//         [STRUCTURE_WALL]: 99,
+//         [STRUCTURE_OBSERVER]: 99,
+//         [STRUCTURE_POWER_SPAWN]: 99,
+//         [STRUCTURE_EXTRACTOR]: 99,
+//         [STRUCTURE_LAB]: 99,
+//         [STRUCTURE_TERMINAL]: 99,
+//         [STRUCTURE_NUKER]: 99,
+//         [STRUCTURE_FACTORY]: 99,
+//         [STRUCTURE_KEEPER_LAIR]: 99,
+//         [STRUCTURE_POWER_BANK]: 99,
+//         [STRUCTURE_INVADER_CORE]: 99,
+//         [STRUCTURE_PORTAL]: 99,
+//     };
+//     return structures.sort((a, b) => (priorityOrder[a.structureType] || 99) - (priorityOrder[b.structureType] || 99));
+// },
+// assignHaulerSubRoles() {
+//     type SubRole = "spawnSupplier" | "upgrader" | "builder";
+//     const allHaulers = _.filter(Game.creeps, creep => creep.memory.role === "hauler");
+//     // Count haulers for each subRole
+//     const subRoleCounts: Record<SubRole, number> = {
+//         spawnSupplier: 0,
+//         upgrader: 0,
+//         builder: 0,
+//     };
+//     allHaulers.forEach(creep => {
+//         if (creep.memory.subRole && creep.memory.subRole in subRoleCounts) {
+//             const subRole = creep.memory.subRole as SubRole; // Ensure TypeScript knows this is a SubRole
+//             subRoleCounts[subRole] += 1;
+//         }
+//     });
+//     // Assign subRoles dynamically if needed
+//     const desiredDistribution: Record<SubRole, number> = {
+//         spawnSupplier: Math.ceil(allHaulers.length / 3),
+//         upgrader: Math.ceil(allHaulers.length / 3),
+//         builder: Math.ceil(allHaulers.length / 3),
+//     };
+//     allHaulers.forEach(creep => {
+//         const currentSubRole = creep.memory.subRole as SubRole;
+//         if (
+//             !currentSubRole ||
+//             subRoleCounts[currentSubRole] > desiredDistribution[currentSubRole]
+//         ) {
+//             // Find the least-represented subRole
+//             const newSubRole = Object.entries(desiredDistribution)
+//                 .sort(([, countA], [, countB]) => countA - countB)
+//                 .find(([role, count]) => subRoleCounts[role as SubRole] < count)?.[0] as SubRole;
+//             if (newSubRole) {
+//                 // Assign new subRole
+//                 creep.memory.subRole = newSubRole;
+//                 subRoleCounts[newSubRole] += 1;
+//                 console.log(`[Assign] ${creep.name} assigned to subRole: ${newSubRole}`);
+//             }
+//         }
+//     });
+// }
+
+var roleSlave = {
+    run(creep) {
+        // Ensure subRole is assigned
+        this.assignSlaveSubRoles();
+        const damagedStructures = creep.room.find(FIND_STRUCTURES, {
+            filter: structure => structure.hits < structure.hitsMax &&
+                structure.structureType !== STRUCTURE_WALL,
+        });
+        const damagedWalls = creep.room.find(FIND_STRUCTURES, {
+            filter: structure => structure.hits < structure.hitsMax &&
+                structure.structureType === STRUCTURE_WALL,
+        });
+        const constructionSites = creep.room.find(FIND_CONSTRUCTION_SITES);
+        // State transitions: picking up or supplying
+        if (creep.memory.pickingUp && creep.store.getFreeCapacity() === 0) {
+            creep.memory.pickingUp = false;
+            creep.say("♿ Working");
+        }
+        if (!creep.memory.pickingUp && creep.store.getUsedCapacity() === 0) {
+            creep.memory.pickingUp = true;
+            creep.say("⬆ Picking Up");
+        }
+        // Handle picking up energy
+        if (creep.memory.pickingUp) {
+            actions.pickupEnergy(creep);
+        }
+        else {
+            // Execute actions based on the subRole
+            switch (creep.memory.subRole) {
+                case "repairer":
+                    if (damagedStructures.length > 0) {
+                        const target = _.min(damagedStructures, "hits");
+                        actions.repair(creep, target);
+                    }
+                    else {
+                        creep.say("❌ No repairs needed");
+                    }
+                    break;
+                case "wallRepairer":
+                    if (damagedWalls.length > 0) {
+                        const target = _.min(damagedWalls, "hits");
+                        actions.repair(creep, target);
+                    }
+                    else {
+                        creep.say("❌ No wall repairs needed");
+                    }
+                    break;
+                case "builder":
+                    if (constructionSites.length > 0) {
+                        const target = constructionSites[0];
+                        actions.build(creep, target);
+                    }
+                    else {
+                        creep.say("❌ No construction sites");
+                    }
+                    break;
+                case "upgrader":
+                    actions.upgradeController(creep);
+                    break;
+                default:
+                    console.log(`[${creep.name}] Invalid or missing subRole.`);
+            }
+        }
+    },
+    assignSlaveSubRoles() {
+        const allSlaves = _.filter(Game.creeps, creep => creep.memory.role === config.roles.slave.role);
+        if (allSlaves.length === 0) {
+            console.log("No slaves available to assign subRoles.");
+            return;
+        }
+        allSlaves[0].room;
+        // Define subRole counts
+        const subRoleCounts = {
+            repairer: 0,
+            wallRepairer: 0,
+            builder: 0,
+            upgrader: 0,
+        };
+        // Count existing subRoles
+        allSlaves.forEach(creep => {
+            const subRole = creep.memory.subRole;
+            if (subRole && subRole in subRoleCounts) {
+                subRoleCounts[subRole] += 1;
+            }
+        });
+        // Desired distribution of slaves
+        const desiredDistribution = this.subRolesNeeded();
+        // Reassign subRoles if needed
+        allSlaves.forEach(creep => {
+            var _a;
+            const currentSubRole = creep.memory.subRole;
+            if (!currentSubRole ||
+                subRoleCounts[currentSubRole] > desiredDistribution[currentSubRole]) {
+                // Find the least-represented subRole
+                const newSubRole = (_a = Object.entries(desiredDistribution)
+                    .sort(([, countA], [, countB]) => countA - countB)
+                    .find(([role, count]) => subRoleCounts[role] < count)) === null || _a === void 0 ? void 0 : _a[0];
+                if (newSubRole) {
+                    // Assign new subRole
+                    creep.memory.subRole = newSubRole;
+                    subRoleCounts[newSubRole] += 1;
+                    console.log(`[Assign] ${creep.name} assigned to subRole: ${newSubRole}`);
+                }
+            }
+        });
+    },
+    subRolesNeeded() {
+        const room = Game.rooms[Object.keys(Game.rooms)[0]]; // Replace with a proper room selection
+        if (!room) {
+            console.error("No accessible rooms found.");
+            return {
+                repairer: 0,
+                wallRepairer: 0,
+                builder: 0,
+                upgrader: 0,
+            };
+        }
+        const constructionSites = room.find(FIND_CONSTRUCTION_SITES).length;
+        const criticalStructure = room.find(FIND_STRUCTURES, {
+            filter: structure => structure.hits < structure.hitsMax * config.general.repairThreshold &&
+                structure.structureType !== STRUCTURE_WALL,
+        }).length;
+        room.find(FIND_STRUCTURES, {
+            filter: structure => structure.hits < structure.hitsMax &&
+                structure.structureType === STRUCTURE_WALL,
+        }).length;
+        let wallsRepairs = 0;
+        let structRepairs = 0;
+        // Determine wall repairer count
+        {
+            wallsRepairs = 0; // Wall repair disabled in config
+        }
+        // Determine structure repairer count
+        if (criticalStructure > 0) {
+            structRepairs = 1; // Require 1 repairer if a critical structure exists
+        }
+        else {
+            structRepairs = 0; // No repairer needed otherwise
+        }
+        // Calculate builder and upgrader counts
+        const buildersNeeded = Math.min(constructionSites, 3); // Cap builders at 3
+        const upgradersNeeded = config.roles.slave.defaultUpgraderCount; // Default upgrader count from config
+        return {
+            repairer: structRepairs,
+            wallRepairer: wallsRepairs,
+            builder: buildersNeeded,
+            upgrader: upgradersNeeded,
+        };
+    },
+    slavesNeeded() {
+        const subRoleCounts = this.subRolesNeeded();
+        const totalSlavesNeeded = Object.values(subRoleCounts).reduce((sum, count) => sum + count, 0);
+        return totalSlavesNeeded;
+    },
+};
+
+class RoomMemoryManager {
+    static initializeRoomMemory(room) {
+        var _a, _b;
+        var _c, _d;
+        (_a = Memory.rooms) !== null && _a !== void 0 ? _a : (Memory.rooms = {});
+        (_b = (_c = Memory.rooms)[_d = room.name]) !== null && _b !== void 0 ? _b : (_c[_d] = {
+            sources: {},
+            structures: {},
+            creeps: {},
+            lastAnalyzed: 0,
+            initialized: false,
+            spawnQueue: [],
+        });
+        console.log(`Initialized memory for room: ${room.name}`);
+        const roomMemory = Memory.rooms[room.name];
+        // Initialize sources
+        room.find(FIND_SOURCES).forEach(source => {
+            var _a;
+            var _b, _c;
+            (_a = (_b = roomMemory.sources)[_c = source.id]) !== null && _a !== void 0 ? _a : (_b[_c] = {
+                id: source.id,
+                vacancies: 1,
+                creeps: [],
+            });
+            console.log(`Source initialized: ${source.id}`);
+        });
+        // Initialize structures
+        room.find(FIND_STRUCTURES).forEach(structure => {
+            var _a;
+            var _b, _c;
+            (_a = (_b = roomMemory.structures)[_c = structure.id]) !== null && _a !== void 0 ? _a : (_b[_c] = {
+                id: structure.id,
+                type: structure.structureType,
+                creeps: [],
+            });
+        });
+        // Set it initialized
+        Memory.rooms[room.name].initialized = true;
+    }
+    static addCreepToRoom(room, creep) {
+        const roomMemory = Memory.rooms[room.name];
+        if (!room.name) {
+            console.log(`There is no room could be assigned`);
+        }
+        else {
+            roomMemory.creeps[creep.name] = {
+                id: creep.name,
+                role: creep.memory.role,
+                target: creep.memory.target,
+                roomAssignment: room.name,
+            };
+        }
+        // Assign the creep to a target if specified and not already assigned
+        if (creep.memory.target) {
+            const roomMemory = Memory.rooms[room.name];
+            // Check if the creep is already assigned to the target
+            const isAlreadyAssigned = Object.values(roomMemory.sources).some(source => source.creeps.includes(creep.name)) || Object.values(roomMemory.structures).some(structure => structure.creeps.includes(creep.name));
+            if (!isAlreadyAssigned) {
+                this.assignCreepToTarget(room, creep.name, creep.memory.target);
+            }
+            else {
+                console.log(`[${creep.name}] Already assigned to target: ${creep.memory.target}`);
+            }
+        }
+    }
+    static removeCreepFromRoom(room, creepName) {
+        const roomMemory = Memory.rooms[room.name];
+        // Remove the creep from the creeps list
+        delete roomMemory.creeps[creepName];
+        // Remove the creep from all sources
+        Object.values(roomMemory.sources).forEach(sourceMemory => {
+            sourceMemory.creeps = sourceMemory.creeps.filter(name => name !== creepName);
+        });
+        // Remove the creep from all structures
+        Object.values(roomMemory.structures).forEach(structureMemory => {
+            structureMemory.creeps = structureMemory.creeps.filter(name => name !== creepName);
+        });
+    }
+    static assignCreepToTarget(room, creepName, targetId) {
+        const roomMemory = Memory.rooms[room.name];
+        // Determine target type and assign creep
+        if (roomMemory.sources[targetId]) {
+            roomMemory.sources[targetId].creeps.push(creepName);
+        }
+        else if (roomMemory.structures[targetId]) {
+            roomMemory.structures[targetId].creeps.push(creepName);
+        }
+    }
+    static cleanupExpiredCreeps(room) {
+        const roomMemory = Memory.rooms[room.name];
+        for (const creepName in roomMemory.creeps) {
+            if (!Game.creeps[creepName]) {
+                console.log(`Cleaning up expired creep: ${creepName}`);
+                this.removeCreepFromRoom(room, creepName);
+            }
+        }
+        // Cleanup expired workers from creeps too
+        for (const name in Memory.creeps) {
+            if (!Game.creeps[name]) {
+                delete Memory.creeps[name];
+            }
+        }
+    }
+}
 
 class SpawnQueueManager {
     /**
@@ -13108,12 +13198,13 @@ var spawnCreeps = {
             console.log(`[SpawnQueue] Queue is full in room ${room.name}.`);
             //why do i do this?
         }
+        console.log(`Having ${roleCounts.slave} slaves, should have ${roleSlave.slavesNeeded()}`);
         // Priority spawning logic
         if (roleCounts.miner < 1 && roleCounts.dummy < config.roles.dummy.defaultCount) {
             SpawnQueueManager.clearQueue(room);
             this.enqueueCreep(room, "dummy");
         }
-        else if (totalCreeps < 10) {
+        else if (totalCreeps < 8) {
             this.handleLowPopulationSpawning(room, roleCounts, totalVacancies);
         }
         else {
@@ -13123,24 +13214,22 @@ var spawnCreeps = {
         this.processSpawnQueue(spawn);
     },
     handleLowPopulationSpawning(room, roleCounts, totalVacancies) {
-        if (roleCounts.miner < 1 && SpawnQueueManager.isQueueAvailable(room))
-            this.enqueueCreep(room, "miner");
-        if (roleCounts.hauler < 1 && SpawnQueueManager.isQueueAvailable(room))
-            this.enqueueCreep(room, "hauler");
-        if (roleCounts.slave < 1 && SpawnQueueManager.isQueueAvailable(room))
-            this.enqueueCreep(room, "slave");
-        if (roleCounts.hauler < roleCounts.miner && SpawnQueueManager.isQueueAvailable(room))
-            this.enqueueCreep(room, "hauler");
-        if (roleCounts.slave < roleCounts.miner && SpawnQueueManager.isQueueAvailable(room))
-            this.enqueueCreep(room, "slave");
+        const roomMemory = Memory.rooms[room.name];
+        const containers = Object.values(roomMemory.structures).filter(structure => structure.type === STRUCTURE_CONTAINER) || 0;
         if (roleCounts.miner < totalVacancies - 1 && SpawnQueueManager.isQueueAvailable(room))
             this.enqueueCreep(room, "miner");
-    },
-    handleSustainedSpawning(room, roleCounts, totalVacancies) {
-        if (roleCounts.hauler < roleCounts.miner && SpawnQueueManager.isQueueAvailable(room))
+        if (roleCounts.hauler < roleCounts.miner - containers.length && SpawnQueueManager.isQueueAvailable(room))
             this.enqueueCreep(room, "hauler");
         if (roleCounts.slave < roleSlave.slavesNeeded() && SpawnQueueManager.isQueueAvailable(room))
             this.enqueueCreep(room, "slave");
+    },
+    handleSustainedSpawning(room, roleCounts, totalVacancies) {
+        const roomMemory = Memory.rooms[room.name];
+        const containers = Object.values(roomMemory.structures).filter(structure => structure.type === STRUCTURE_CONTAINER) || 0;
+        if (roleCounts.slave < roleSlave.slavesNeeded() && SpawnQueueManager.isQueueAvailable(room))
+            this.enqueueCreep(room, "slave");
+        if (roleCounts.hauler < roleCounts.miner - containers.length && SpawnQueueManager.isQueueAvailable(room))
+            this.enqueueCreep(room, "hauler");
         if (roleCounts.miner < totalVacancies - 1 && SpawnQueueManager.isQueueAvailable(room))
             this.enqueueCreep(room, "miner");
     },
@@ -13157,12 +13246,12 @@ var spawnCreeps = {
                     // All slaves by-default are Upgraders
                     if (nextCreep.role === config.roles.slave.role) {
                         result = spawn.spawnCreep(nextCreep.parts, newName, {
-                            memory: { id: newName, role: nextCreep.role, subRole: "upgrader", target: undefined },
+                            memory: { id: newName, role: nextCreep.role, subRole: "upgrader", target: undefined, roomAssignment: room.name },
                         });
                     }
                     else {
                         result = spawn.spawnCreep(nextCreep.parts, newName, {
-                            memory: { id: newName, role: nextCreep.role, target: undefined },
+                            memory: { id: newName, role: nextCreep.role, target: undefined, roomAssignment: room.name },
                         });
                     }
                     if (result === OK) {
@@ -13180,7 +13269,7 @@ var spawnCreeps = {
         const roleKeys = Object.keys(config.roles);
         const counts = {};
         roleKeys.forEach(role => {
-            counts[role] = _$1.filter(creeps, creep => creep.memory.role === role).length;
+            counts[role] = _.filter(creeps, creep => creep.memory.role === role).length;
         });
         return counts;
     },
@@ -13276,7 +13365,6 @@ var structureTower = {
     }
 };
 
-// import * as _ from 'lodash';
 function loop() {
     for (const roomName in Game.rooms) {
         const room = Game.rooms[roomName];

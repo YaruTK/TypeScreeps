@@ -34,11 +34,13 @@ export default spawnCreeps = {
             //why do i do this?
         }
 
+        console.log(`Having ${roleCounts.slave} slaves, should have ${roleSlave.slavesNeeded()}`);
+
         // Priority spawning logic
         if (roleCounts.miner < 1 && roleCounts.dummy < config.roles.dummy.defaultCount) {
             SQM.clearQueue(room);
             this.enqueueCreep(room, "dummy");
-        } else if (totalCreeps < 10) {
+        } else if (totalCreeps < 8) {
             this.handleLowPopulationSpawning(room, roleCounts, totalVacancies);
         } else {
             this.handleSustainedSpawning(room, roleCounts, totalVacancies);
@@ -49,17 +51,23 @@ export default spawnCreeps = {
     },
 
     handleLowPopulationSpawning(room: Room, roleCounts: Record<string, number>, totalVacancies: number) {
-        if (roleCounts.miner < 1 && SQM.isQueueAvailable(room)) this.enqueueCreep(room, "miner");
-        if (roleCounts.hauler < 1 && SQM.isQueueAvailable(room)) this.enqueueCreep(room, "hauler");
-        if (roleCounts.slave < 1 && SQM.isQueueAvailable(room)) this.enqueueCreep(room, "slave");
-        if (roleCounts.hauler < roleCounts.miner && SQM.isQueueAvailable(room)) this.enqueueCreep(room, "hauler");
-        if (roleCounts.slave < roleCounts.miner && SQM.isQueueAvailable(room)) this.enqueueCreep(room, "slave");
+        const roomMemory = Memory.rooms[room.name];
+        const containers = Object.values(roomMemory.structures).filter(
+            structure => structure.type === STRUCTURE_CONTAINER
+        ) || 0;
         if (roleCounts.miner < totalVacancies - 1 && SQM.isQueueAvailable(room)) this.enqueueCreep(room, "miner");
+        if (roleCounts.hauler < roleCounts.miner - containers.length && SQM.isQueueAvailable(room)) this.enqueueCreep(room, "hauler");
+        if (roleCounts.slave < roleSlave.slavesNeeded() && SQM.isQueueAvailable(room)) this.enqueueCreep(room, "slave");
+
     },
 
     handleSustainedSpawning(room: Room, roleCounts: Record<string, number>, totalVacancies: number) {
-        if (roleCounts.hauler < roleCounts.miner && SQM.isQueueAvailable(room)) this.enqueueCreep(room, "hauler");
+        const roomMemory = Memory.rooms[room.name];
+        const containers = Object.values(roomMemory.structures).filter(
+            structure => structure.type === STRUCTURE_CONTAINER
+        ) || 0;
         if (roleCounts.slave < roleSlave.slavesNeeded() && SQM.isQueueAvailable(room)) this.enqueueCreep(room, "slave");
+        if (roleCounts.hauler < roleCounts.miner - containers.length && SQM.isQueueAvailable(room)) this.enqueueCreep(room, "hauler");
         if (roleCounts.miner < totalVacancies - 1 && SQM.isQueueAvailable(room)) this.enqueueCreep(room, "miner");
     },
 
@@ -79,11 +87,11 @@ export default spawnCreeps = {
                     // All slaves by-default are Upgraders
                     if (nextCreep.role === config.roles.slave.role){
                     result = spawn.spawnCreep(nextCreep.parts, newName, {
-                        memory: { id: newName, role: nextCreep.role, subRole: "upgrader", target: undefined},
+                        memory: { id: newName, role: nextCreep.role, subRole: "upgrader", target: undefined, roomAssignment: room.name},
                     });
                 } else {
                     result = spawn.spawnCreep(nextCreep.parts, newName, {
-                        memory: { id: newName, role: nextCreep.role, target: undefined},
+                        memory: { id: newName, role: nextCreep.role, target: undefined, roomAssignment: room.name},
                     });
                }
                     if (result === OK) {

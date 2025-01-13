@@ -1,13 +1,40 @@
 import config from "./config";
+import _ from "lodash";
 
 const actions = {
+
+    moveToAssignedRoom(creep: Creep): void {
+        const assignedRoom = Memory.creeps[creep.name].roomAssignment;
+        if (!assignedRoom){
+            console.log(`[Move] Error: no assigned room`);
+        } else{
+        if (creep.room.name !== assignedRoom) {
+            // Move to the center of the target room
+            const exitDir = creep.room.findExitTo(assignedRoom);
+            if (exitDir === ERR_NO_PATH || exitDir === ERR_INVALID_ARGS) {
+                console.log(`[${creep.name}] No valid path to room: ${assignedRoom}`);
+                return;
+            }
+
+            const exit = creep.pos.findClosestByPath(exitDir as ExitConstant);
+            if (exit) {
+                creep.moveTo(exit, { visualizePathStyle: { stroke: config.colors.paths.delivering } });
+                creep.say(`➡️ ${assignedRoom}`);
+            } else {
+                console.log(`[${creep.name}] Could not find an exit to room: ${assignedRoom}`);
+            }
+        }
+    }
+    },
+
     /**
      * Upgrade the room controller.
      * @param {Creep} creep - The creep performing the action.
      * @param {StructureController} [target] - The controller to upgrade.
      */
-
     upgradeController(creep: Creep, target?: StructureController): void {
+
+        this.moveToAssignedRoom(creep);
         const controller = target || creep.room.controller;
 
         if (!controller) {
@@ -40,6 +67,7 @@ const actions = {
      * @param {Resource | StructureContainer | StructureStorage} [target] - The target to pick up energy from.
      */
     pickupEnergy(creep: Creep, target?: Resource | StructureContainer | StructureStorage): void {
+        this.moveToAssignedRoom(creep);
         if (target instanceof Resource) {
             if (creep.pickup(target) === ERR_NOT_IN_RANGE) {
                 creep.moveTo(target, { visualizePathStyle: { stroke: config.colors.paths.pickingUp } });
@@ -85,6 +113,7 @@ const actions = {
      * @param {Source} [target] - The source to mine.
      */
     mine(creep: Creep, target?: Source): void {
+        this.moveToAssignedRoom(creep);
         const source = target || creep.pos.findClosestByPath(FIND_SOURCES);
 
         if (!source) {
@@ -122,6 +151,7 @@ const actions = {
      * @param {Structure} [target] - The target structure to supply energy to.
      */
     supply(creep: Creep, target?: Structure): void {
+        this.moveToAssignedRoom(creep);
         if (target) {
             if (creep.transfer(target, RESOURCE_ENERGY) === ERR_NOT_IN_RANGE) {
                 creep.moveTo(target, { visualizePathStyle: { stroke: config.colors.paths.delivering } });
@@ -150,6 +180,7 @@ const actions = {
      * @param {ConstructionSite} [target] - The construction site to build.
      */
     build(creep: Creep, target?: ConstructionSite): void {
+        this.moveToAssignedRoom(creep);
         if (target) {
             if (creep.build(target) === ERR_NOT_IN_RANGE) {
                 creep.moveTo(target, { visualizePathStyle: { stroke: config.colors.paths.upgrading } });
@@ -172,6 +203,7 @@ const actions = {
      * @param {Structure} [target] - The structure to repair.
      */
     repair(creep: Creep, target?: Structure): void {
+        this.moveToAssignedRoom(creep);
         if (target) {
             if (creep.repair(target) === ERR_NOT_IN_RANGE) {
                 creep.moveTo(target, { visualizePathStyle: { stroke: config.colors.paths.repairing } });

@@ -7,6 +7,8 @@ declare global {
         mining?: boolean;
         pickingUp?: boolean;
         working?: boolean;
+        roomAssignment?: string;
+        container?: string;
     }
 
     interface SourceMemory {

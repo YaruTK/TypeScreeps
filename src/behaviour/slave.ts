@@ -1,5 +1,6 @@
 import actions from "../scripts/actions";
 import config from "scripts/config";
+import _ from "lodash";
 
 let roleSlave: {
     /**
@@ -7,18 +8,17 @@ let roleSlave: {
      */
     run(creep: Creep): void;
     assignSlaveSubRoles(): void;
+    subRolesNeeded(): Record<SubRole, number>;
     slavesNeeded(): number;
 };
 
 type SubRole = "repairer" | "wallRepairer" | "builder" | "upgrader";
-let slaveNumber = 0;
 
 export default roleSlave = {
         run(creep: Creep) {
             // Ensure subRole is assigned
-            if (!creep.memory.subRole) {
-                this.assignSlaveSubRoles();
-            }
+            this.assignSlaveSubRoles();
+
 
             const damagedStructures = creep.room.find(FIND_STRUCTURES, {
                 filter: structure =>
@@ -110,34 +110,9 @@ export default roleSlave = {
                 }
             });
 
-            const constructionSites = room.find(FIND_CONSTRUCTION_SITES);
-
-            const damagedStructures = room.find(FIND_STRUCTURES, {
-                filter: structure =>
-                    structure.hits < structure.hitsMax &&
-                    structure.structureType !== STRUCTURE_WALL,
-            });
-
-            const damagedWalls = room.find(FIND_STRUCTURES, {
-                filter: structure =>
-                    structure.hits < structure.hitsMax &&
-                    structure.structureType === STRUCTURE_WALL,
-            });
 
             // Desired distribution of slaves
-            const repWalls = damagedWalls.length || 0;
-            const repStructs = damagedStructures.length || 0;
-            const constSites = constructionSites.length || 0;
-            const defUpgraders = config.roles.slave.defaultUpgraderCount;
-
-            const desiredDistribution: Record<SubRole, number> = {
-                wallRepairer: repWalls,
-                repairer: repStructs,
-                builder: constSites,
-                upgrader: config.roles.slave.defaultUpgraderCount, // Default number of upgraders
-            };
-
-            slaveNumber += repWalls + repStructs + constSites + defUpgraders;
+            const desiredDistribution: Record<SubRole, number> = this.subRolesNeeded();
 
             // Reassign subRoles if needed
             allSlaves.forEach(creep => {
@@ -161,8 +136,66 @@ export default roleSlave = {
             });
         },
 
-        slavesNeeded() {
-            return slaveNumber;
+        subRolesNeeded(): Record<SubRole, number> {
+            const room = Game.rooms[Object.keys(Game.rooms)[0]]; // Replace with a proper room selection
+            if (!room) {
+                console.error("No accessible rooms found.");
+                return {
+                    repairer: 0,
+                    wallRepairer: 0,
+                    builder: 0,
+                    upgrader: 0,
+                };
+            }
+
+            const constructionSites = room.find(FIND_CONSTRUCTION_SITES).length;
+
+            const criticalStructure = room.find(FIND_STRUCTURES, {
+                filter: structure =>
+                    structure.hits < structure.hitsMax * config.general.repairThreshold &&
+                    structure.structureType !== STRUCTURE_WALL,
+            }).length;
+
+            const damagedWalls = room.find(FIND_STRUCTURES, {
+                filter: structure =>
+                    structure.hits < structure.hitsMax &&
+                    structure.structureType === STRUCTURE_WALL,
+            }).length;
+
+            let wallsRepairs = 0;
+            let structRepairs = 0;
+
+            // Determine wall repairer count
+            if (!config.general.repairWalls) {
+                wallsRepairs = 0; // Wall repair disabled in config
+            } else {
+                wallsRepairs = Math.min(damagedWalls, 1); // Only 1 wall repairer if walls are damaged
+            }
+
+            // Determine structure repairer count
+            if (criticalStructure > 0) {
+                structRepairs = 1; // Require 1 repairer if a critical structure exists
+            } else {
+                structRepairs = 0; // No repairer needed otherwise
+            }
+
+            // Calculate builder and upgrader counts
+            const buildersNeeded = Math.min(constructionSites, 3); // Cap builders at 3
+            const upgradersNeeded = config.roles.slave.defaultUpgraderCount; // Default upgrader count from config
+
+            return {
+                repairer: structRepairs,
+                wallRepairer: wallsRepairs,
+                builder: buildersNeeded,
+                upgrader: upgradersNeeded,
+            };
+        },
+
+        slavesNeeded(): number {
+            const subRoleCounts = this.subRolesNeeded();
+            const totalSlavesNeeded = Object.values(subRoleCounts).reduce((sum, count) => sum + count, 0);
+
+            return totalSlavesNeeded;
         },
 
 };

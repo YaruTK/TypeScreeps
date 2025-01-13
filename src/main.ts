@@ -1,5 +1,3 @@
-import { ErrorMapper } from "utils/ErrorMapper";
-
 import roleDummy from "./behaviour/dummy";
 import roleMiner from "./behaviour/miner";
 import roleHauler from "./behaviour/hauler";
@@ -13,11 +11,6 @@ import analyzeRoom from "./scripts/analysis";
 
 
 import structureTower from "./structures/tower";
-import { NONAME } from "dns";
-
-import { isEmpty } from "lodash";
-
-// import * as _ from 'lodash';
 
 
 export function loop() {
