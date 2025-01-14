@@ -39,7 +39,7 @@ const config = {
     },
     general: {
         maxQueueLength: 2,
-        repairThreshold: 0.5,
+        repairThreshold: 0.7,
         repairWalls: false,
     },
     colors: {
@@ -50,6 +50,197 @@ const config = {
             repairing: "#aa00aa",
         },
     },
+};
+
+class RoomMemoryManager {
+    static initializeRoomMemory(room) {
+        var _a, _b;
+        var _c, _d;
+        (_a = Memory.rooms) !== null && _a !== void 0 ? _a : (Memory.rooms = {});
+        (_b = (_c = Memory.rooms)[_d = room.name]) !== null && _b !== void 0 ? _b : (_c[_d] = {
+            sources: {},
+            structures: {},
+            creeps: {},
+            flags: {},
+            lastAnalyzed: 0,
+            initialized: false,
+            spawnQueue: [],
+        });
+        console.log(`Initialized memory for room: ${room.name}`);
+        const roomMemory = Memory.rooms[room.name];
+        // Initialize sources
+        room.find(FIND_SOURCES).forEach(source => {
+            var _a;
+            var _b, _c;
+            (_a = (_b = roomMemory.sources)[_c = source.id]) !== null && _a !== void 0 ? _a : (_b[_c] = {
+                id: source.id,
+                vacancies: 1,
+                creeps: [],
+            });
+            console.log(`Source initialized: ${source.id}`);
+        });
+        // Initialize structures
+        room.find(FIND_STRUCTURES).forEach(structure => {
+            var _a;
+            var _b, _c;
+            (_a = (_b = roomMemory.structures)[_c = structure.id]) !== null && _a !== void 0 ? _a : (_b[_c] = {
+                id: structure.id,
+                type: structure.structureType,
+                creeps: [],
+            });
+        });
+        room.find(FIND_FLAGS).forEach(flag => {
+            var _a;
+            var _b, _c;
+            (_a = (_b = roomMemory.flags)[_c = flag.name]) !== null && _a !== void 0 ? _a : (_b[_c] = {
+                id: flag.name,
+                assignedPositions: [],
+            });
+        });
+        // Set it initialized
+        Memory.rooms[room.name].initialized = true;
+    }
+    static addCreepToRoom(room, creep) {
+        const roomMemory = Memory.rooms[room.name];
+        if (!room.name) {
+            console.log(`There is no room could be assigned`);
+        }
+        else {
+            roomMemory.creeps[creep.name] = {
+                id: creep.name,
+                role: creep.memory.role,
+                target: creep.memory.target,
+                roomAssignment: room.name,
+            };
+        }
+        // Assign the creep to a target if specified and not already assigned
+        if (creep.memory.target) {
+            const roomMemory = Memory.rooms[room.name];
+            // Check if the creep is already assigned to the target
+            const isAlreadyAssigned = Object.values(roomMemory.sources).some(source => source.creeps.includes(creep.name)) || Object.values(roomMemory.structures).some(structure => structure.creeps.includes(creep.name));
+            if (!isAlreadyAssigned) {
+                this.assignCreepToTarget(room, creep.name, creep.memory.target);
+            }
+            else {
+                console.log(`[${creep.name}] Already assigned to target: ${creep.memory.target}`);
+            }
+        }
+    }
+    static removeCreepFromRoom(room, creepName) {
+        const roomMemory = Memory.rooms[room.name];
+        // Remove the creep from the creeps list
+        delete roomMemory.creeps[creepName];
+        // Remove the creep from all sources
+        Object.values(roomMemory.sources).forEach(sourceMemory => {
+            sourceMemory.creeps = sourceMemory.creeps.filter(name => name !== creepName);
+        });
+        // Remove the creep from all structures
+        Object.values(roomMemory.structures).forEach(structureMemory => {
+            structureMemory.creeps = structureMemory.creeps.filter(name => name !== creepName);
+        });
+    }
+    static assignCreepToTarget(room, creepName, targetId) {
+        const roomMemory = Memory.rooms[room.name];
+        // Determine target type and assign creep
+        if (roomMemory.sources[targetId]) {
+            roomMemory.sources[targetId].creeps.push(creepName);
+        }
+        else if (roomMemory.structures[targetId]) {
+            roomMemory.structures[targetId].creeps.push(creepName);
+        }
+    }
+    static cleanupExpiredCreeps(room) {
+        const roomMemory = Memory.rooms[room.name];
+        for (const creepName in roomMemory.creeps) {
+            if (!Game.creeps[creepName]) {
+                console.log(`Cleaning up expired creep: ${creepName}`);
+                this.removeCreepFromRoom(room, creepName);
+            }
+        }
+        // Cleanup expired workers from creeps too
+        for (const name in Memory.creeps) {
+            if (!Game.creeps[name]) {
+                delete Memory.creeps[name];
+            }
+        }
+    }
+}
+
+const analyzeRoom = {
+    analyze(room) {
+        const roomMemory = Memory.rooms[room.name];
+        // Check if analysis is needed
+        const now = Game.time;
+        if (roomMemory.lastAnalyzed && now - roomMemory.lastAnalyzed < 60) {
+            console.log(`Room ${room.name} analysis skipped (recently analyzed). Next analysis in ${60 - now + roomMemory.lastAnalyzed} s.`);
+            return;
+        }
+        console.log(`Analyzing room: ${room.name}`);
+        // Ensure room memory is initialized
+        if (!Memory.rooms[room.name].initialized) {
+            RoomMemoryManager.initializeRoomMemory(room);
+        }
+        // Analyze sources
+        const sources = room.find(FIND_SOURCES);
+        sources.forEach(source => {
+            var _a;
+            const sourceMemory = (_a = roomMemory.sources[source.id]) !== null && _a !== void 0 ? _a : {
+                id: source.id,
+                vacancies: 0,
+                creeps: [],
+            };
+            // Calculate free spots around the source
+            const freeSpots = room
+                .lookAtArea(source.pos.y - 1, source.pos.x - 1, source.pos.y + 1, source.pos.x + 1, true)
+                .filter(spot => spot.type === "terrain" && spot.terrain !== "wall")
+                .map(spot => ({ x: spot.x, y: spot.y }));
+            sourceMemory.vacancies = freeSpots.length;
+            // Update memory for the source
+            roomMemory.sources[source.id] = sourceMemory;
+        });
+        // Analyze structures
+        const structures = room.find(FIND_STRUCTURES);
+        structures.forEach(structure => {
+            var _a;
+            const structureMemory = (_a = roomMemory.structures[structure.id]) !== null && _a !== void 0 ? _a : {
+                id: structure.id,
+                type: structure.structureType,
+                creeps: [],
+            };
+            // Update memory for the structure
+            roomMemory.structures[structure.id] = structureMemory;
+        });
+        room.find(FIND_FLAGS).forEach(flag => {
+            this.calculateFlagAssignedPositions(flag);
+        });
+        // Update the lastAnalyzed timestamp
+        roomMemory.lastAnalyzed = now;
+        console.log(`Room ${room.name} analysis complete.`);
+    },
+    calculateFlagAssignedPositions(flag) {
+        if (!flag.memory.assignedPositions) {
+            const centerX = flag.pos.x;
+            const centerY = flag.pos.y;
+            const positions = [];
+            for (let dx = -2; dx <= 2; dx++) {
+                for (let dy = -2; dy <= 2; dy++) {
+                    // Only include chess-pattern positions
+                    if ((dx + dy) % 2 === 0) {
+                        const x = centerX + dx;
+                        const y = centerY + dy;
+                        // Ensure the position is walkable
+                        const terrain = Game.map.getRoomTerrain(flag.room.name);
+                        if (terrain.get(x, y) !== TERRAIN_MASK_WALL) {
+                            positions.push({ x, y });
+                        }
+                    }
+                }
+            }
+            // Save positions to flag memory
+            flag.memory.assignedPositions = positions;
+            console.log(`Assigned positions for flag ${flag.name}:`, positions);
+        }
+    }
 };
 
 var commonjsGlobal = typeof globalThis !== 'undefined' ? globalThis : typeof window !== 'undefined' ? window : typeof global !== 'undefined' ? global : typeof self !== 'undefined' ? self : {};
@@ -12492,36 +12683,97 @@ const actions = {
             }
         }
     },
-    /**
-     * Mine energy from a source, prioritizing standing on a container adjacent to the source.
-     * @param {Creep} creep - The creep performing the action.
-     * @param {Source} [target] - The source to mine.
-     */
-    mine(creep, target) {
+    mineInContainer(creep) {
         this.moveToAssignedRoom(creep);
-        const source = target || creep.pos.findClosestByPath(FIND_SOURCES);
-        if (!source) {
-            creep.say("❌ No source");
-            return;
-        }
-        const containers = creep.room.find(FIND_STRUCTURES, {
-            filter: structure => structure.structureType === STRUCTURE_CONTAINER &&
-                structure.pos.inRangeTo(source.pos, 1),
-        });
-        if (containers.length > 0) {
-            const container = containers[0];
-            if (!creep.pos.isEqualTo(container.pos)) {
-                creep.moveTo(container, { visualizePathStyle: { stroke: config.colors.paths.pickingUp } });
-                creep.say("📦 Moving to container");
+        if (!creep.memory.container) {
+            // Search for containers near sources with no assigned creeps
+            const roomSources = creep.room.find(FIND_SOURCES);
+            for (const source of roomSources) {
+                const containers = source.pos.findInRange(FIND_STRUCTURES, 1, {
+                    filter: structure => structure.structureType === STRUCTURE_CONTAINER,
+                });
+                for (const container of containers) {
+                    const isContainerOccupied = _.some(Game.creeps, otherCreep => {
+                        return (otherCreep.memory.container === container.id &&
+                            otherCreep.memory.role === "miner");
+                    });
+                    if (!isContainerOccupied) {
+                        creep.memory.container = container.id;
+                        console.log(`[${creep.name}] Assigned to container: ${container.id}`);
+                        break;
+                    }
+                }
+                if (creep.memory.container) {
+                    break; // Stop searching once assigned to a container
+                }
+            }
+            if (!creep.memory.container) {
+                console.log(`[${creep.name}] No unoccupied containers available, switching to normal mining.`);
+                this.mine(creep);
                 return;
             }
         }
-        const result = creep.harvest(source);
-        if (result === ERR_NOT_IN_RANGE) {
-            creep.moveTo(source, { visualizePathStyle: { stroke: config.colors.paths.pickingUp } });
+        // Move to assigned container and start mining
+        const container = Game.getObjectById(creep.memory.container);
+        if (!container) {
+            console.log(`[${creep.name}] Invalid container assignment. Clearing memory.`);
+            delete creep.memory.container;
+            return;
         }
-        else if (result !== OK) {
-            console.log(`${creep.name} failed to mine: ${result}`);
+        if (!creep.pos.isEqualTo(container.pos)) {
+            creep.moveTo(container, { visualizePathStyle: { stroke: "#ffaa00" } });
+            creep.say("📦 Moving to container");
+        }
+        else {
+            const source = container.pos.findInRange(FIND_SOURCES, 1)[0];
+            if (source) {
+                const result = creep.harvest(source);
+                if (result !== OK) {
+                    console.log(`[${creep.name}] Failed to harvest: ${result}`);
+                }
+            }
+            else {
+                console.log(`[${creep.name}] No source near container: ${container.id}`);
+            }
+        }
+    },
+    /**
+    * Mine energy from a source, prioritizing standing on a container adjacent to the source.
+    * @param {Creep} creep - The creep performing the action.
+    * @param {Source} [target] - The source to mine.
+    */
+    mine(creep, target) {
+        const roomMemory = Memory.rooms[creep.room.name];
+        if (!creep.memory.target) {
+            // Find sources with available vacancies
+            const sourcesWithVacancies = Object.values(roomMemory.sources).filter(sourceMemory => {
+                return sourceMemory.vacancies - sourceMemory.creeps.length > 0;
+            });
+            for (const sourceMemory of sourcesWithVacancies) {
+                creep.memory.target = sourceMemory.id;
+                sourceMemory.creeps.push(creep.name); // Update source memory
+                console.log(`[${creep.name}] Assigned to source: ${sourceMemory.id}`);
+                break;
+            }
+            if (!creep.memory.target) {
+                creep.say("❌ No source");
+                return;
+            }
+        }
+        const targetSource = Game.getObjectById(creep.memory.target);
+        if (!targetSource) {
+            console.log(`[${creep.name}] Invalid target source: ${creep.memory.target}`);
+            delete creep.memory.target;
+            return;
+        }
+        const MiningResult = creep.harvest(targetSource);
+        if (MiningResult == ERR_NOT_IN_RANGE) {
+            creep.moveTo(targetSource, { visualizePathStyle: { stroke: config.colors.paths.delivering } });
+            creep.say("🚶 Moving to vacancy");
+            return;
+        }
+        if (MiningResult !== OK) {
+            console.log(`${creep.name} failed to mine: ${MiningResult}`);
         }
     },
     /**
@@ -12547,7 +12799,14 @@ const actions = {
             this.supply(creep, targets[0]);
         }
         else {
-            creep.say("❌ No supply targets");
+            creep.say("💤 Going idle");
+            Memory.creeps[creep.name].idle = true;
+            const flag = Game.flags["AFKzone"];
+            if (flag) {
+                Object.values(Game.creeps).forEach(creep => {
+                    this.goIdle(creep, flag);
+                });
+            }
         }
     },
     /**
@@ -12593,6 +12852,35 @@ const actions = {
         }
         else {
             creep.say("❌ No repairs needed");
+        }
+    },
+    goIdle(creep, flag) {
+        if (!flag.memory.assignedPositions) {
+            console.log(`Flag ${flag.name} has no assigned positions. Calculating now.`);
+            analyzeRoom.calculateFlagAssignedPositions(flag); // Initialize assigned positions
+        }
+        const assignedPositions = flag.memory.assignedPositions;
+        // Find vacant positions (not occupied by any creep)
+        const vacantPositions = assignedPositions.filter(pos => {
+            return !Object.values(Game.creeps).some(otherCreep => {
+                return (otherCreep.memory.position &&
+                    otherCreep.memory.position.x === pos.x &&
+                    otherCreep.memory.position.y === pos.y);
+            });
+        });
+        // Assign the first available position to the creep
+        if (!creep.memory.position && vacantPositions.length > 0) {
+            const assignedPosition = vacantPositions[0];
+            creep.memory.position = { ...assignedPosition };
+            console.log(`[${creep.name}] Assigned to position at (${assignedPosition.x}, ${assignedPosition.y}) for flag ${flag.name}`);
+        }
+        // Move the creep to its assigned position
+        if (creep.memory.position) {
+            const targetPos = new RoomPosition(creep.memory.position.x, creep.memory.position.y, creep.room.name);
+            if (!creep.pos.isEqualTo(targetPos) && Memory.creeps[creep.name].idle) {
+                creep.moveTo(targetPos, { visualizePathStyle: { stroke: "#ffaa00" } });
+                creep.say("🚶 Moving to idle");
+            }
         }
     },
 };
@@ -12649,62 +12937,7 @@ var roleDummy = {
 var roleMiner = {
     run(creep) {
         // Ensure the creep has a target assigned
-        if (!creep.memory.target) {
-            // Assign the creep to a source with vacancies
-            const roomMemory = Memory.rooms[creep.room.name];
-            const availableSource = Object.values(roomMemory.sources).find(source => {
-                return source.vacancies > source.creeps.length;
-            });
-            if (availableSource) {
-                creep.memory.target = availableSource.id;
-                roomMemory.sources[availableSource.id].creeps.push(creep.name);
-                console.log(`[${creep.name}] Assigned to source: ${availableSource.id}`);
-            }
-            else {
-                console.log(`[${creep.name}] No available sources with vacancies.`);
-                return;
-            }
-        }
-        // Mining logic
-        if (creep.memory.target) {
-            const targetSource = Game.getObjectById(creep.memory.target);
-            if (!targetSource) {
-                console.log(`[${creep.name}] Invalid target: ${creep.memory.target}`);
-                delete creep.memory.target; // Clear invalid target
-                return;
-            }
-            // Check for containers near the source
-            const containers = targetSource.pos.findInRange(FIND_STRUCTURES, 1, {
-                filter: structure => structure.structureType === STRUCTURE_CONTAINER,
-            });
-            const unoccupiedContainer = containers.find(container => {
-                // Ensure no other miner is sitting on this container
-                return !_.some(Game.creeps, otherCreep => {
-                    return (otherCreep.memory.role === "miner" &&
-                        otherCreep.memory.container === container.id);
-                });
-            });
-            if (unoccupiedContainer) {
-                // Move to the container and mine from there
-                if (!creep.memory.container || creep.memory.container !== unoccupiedContainer.id) {
-                    creep.memory.container = unoccupiedContainer.id;
-                    console.log(`[${creep.name}] Assigned to container: ${unoccupiedContainer.id}`);
-                }
-                if (!creep.pos.isEqualTo(unoccupiedContainer.pos)) {
-                    creep.moveTo(unoccupiedContainer, {
-                        visualizePathStyle: { stroke: "#ffaa00" },
-                    });
-                }
-                else {
-                    actions.mine(creep, targetSource);
-                }
-            }
-            else {
-                // If no container is available, mine from a free vacancy
-                console.log(`[${creep.name}] No containers available, mining at free vacancy.`);
-                actions.mine(creep, targetSource);
-            }
-        }
+        actions.mineInContainer(creep);
     },
 };
 
@@ -12986,7 +13219,7 @@ var roleSlave = {
         }
         // Determine structure repairer count
         if (criticalStructure > 0) {
-            structRepairs = 1; // Require 1 repairer if a critical structure exists
+            structRepairs = 2; // Require 1 repairer if a critical structure exists
         }
         else {
             structRepairs = 0; // No repairer needed otherwise
@@ -13007,111 +13240,6 @@ var roleSlave = {
         return totalSlavesNeeded;
     },
 };
-
-class RoomMemoryManager {
-    static initializeRoomMemory(room) {
-        var _a, _b;
-        var _c, _d;
-        (_a = Memory.rooms) !== null && _a !== void 0 ? _a : (Memory.rooms = {});
-        (_b = (_c = Memory.rooms)[_d = room.name]) !== null && _b !== void 0 ? _b : (_c[_d] = {
-            sources: {},
-            structures: {},
-            creeps: {},
-            lastAnalyzed: 0,
-            initialized: false,
-            spawnQueue: [],
-        });
-        console.log(`Initialized memory for room: ${room.name}`);
-        const roomMemory = Memory.rooms[room.name];
-        // Initialize sources
-        room.find(FIND_SOURCES).forEach(source => {
-            var _a;
-            var _b, _c;
-            (_a = (_b = roomMemory.sources)[_c = source.id]) !== null && _a !== void 0 ? _a : (_b[_c] = {
-                id: source.id,
-                vacancies: 1,
-                creeps: [],
-            });
-            console.log(`Source initialized: ${source.id}`);
-        });
-        // Initialize structures
-        room.find(FIND_STRUCTURES).forEach(structure => {
-            var _a;
-            var _b, _c;
-            (_a = (_b = roomMemory.structures)[_c = structure.id]) !== null && _a !== void 0 ? _a : (_b[_c] = {
-                id: structure.id,
-                type: structure.structureType,
-                creeps: [],
-            });
-        });
-        // Set it initialized
-        Memory.rooms[room.name].initialized = true;
-    }
-    static addCreepToRoom(room, creep) {
-        const roomMemory = Memory.rooms[room.name];
-        if (!room.name) {
-            console.log(`There is no room could be assigned`);
-        }
-        else {
-            roomMemory.creeps[creep.name] = {
-                id: creep.name,
-                role: creep.memory.role,
-                target: creep.memory.target,
-                roomAssignment: room.name,
-            };
-        }
-        // Assign the creep to a target if specified and not already assigned
-        if (creep.memory.target) {
-            const roomMemory = Memory.rooms[room.name];
-            // Check if the creep is already assigned to the target
-            const isAlreadyAssigned = Object.values(roomMemory.sources).some(source => source.creeps.includes(creep.name)) || Object.values(roomMemory.structures).some(structure => structure.creeps.includes(creep.name));
-            if (!isAlreadyAssigned) {
-                this.assignCreepToTarget(room, creep.name, creep.memory.target);
-            }
-            else {
-                console.log(`[${creep.name}] Already assigned to target: ${creep.memory.target}`);
-            }
-        }
-    }
-    static removeCreepFromRoom(room, creepName) {
-        const roomMemory = Memory.rooms[room.name];
-        // Remove the creep from the creeps list
-        delete roomMemory.creeps[creepName];
-        // Remove the creep from all sources
-        Object.values(roomMemory.sources).forEach(sourceMemory => {
-            sourceMemory.creeps = sourceMemory.creeps.filter(name => name !== creepName);
-        });
-        // Remove the creep from all structures
-        Object.values(roomMemory.structures).forEach(structureMemory => {
-            structureMemory.creeps = structureMemory.creeps.filter(name => name !== creepName);
-        });
-    }
-    static assignCreepToTarget(room, creepName, targetId) {
-        const roomMemory = Memory.rooms[room.name];
-        // Determine target type and assign creep
-        if (roomMemory.sources[targetId]) {
-            roomMemory.sources[targetId].creeps.push(creepName);
-        }
-        else if (roomMemory.structures[targetId]) {
-            roomMemory.structures[targetId].creeps.push(creepName);
-        }
-    }
-    static cleanupExpiredCreeps(room) {
-        const roomMemory = Memory.rooms[room.name];
-        for (const creepName in roomMemory.creeps) {
-            if (!Game.creeps[creepName]) {
-                console.log(`Cleaning up expired creep: ${creepName}`);
-                this.removeCreepFromRoom(room, creepName);
-            }
-        }
-        // Cleanup expired workers from creeps too
-        for (const name in Memory.creeps) {
-            if (!Game.creeps[name]) {
-                delete Memory.creeps[name];
-            }
-        }
-    }
-}
 
 class SpawnQueueManager {
     /**
@@ -13218,7 +13346,7 @@ var spawnCreeps = {
         const containers = Object.values(roomMemory.structures).filter(structure => structure.type === STRUCTURE_CONTAINER) || 0;
         if (roleCounts.miner < totalVacancies - 1 && SpawnQueueManager.isQueueAvailable(room))
             this.enqueueCreep(room, "miner");
-        if (roleCounts.hauler < roleCounts.miner - containers.length && SpawnQueueManager.isQueueAvailable(room))
+        if (roleCounts.hauler < roleCounts.miner - containers.length + 1 && SpawnQueueManager.isQueueAvailable(room))
             this.enqueueCreep(room, "hauler");
         if (roleCounts.slave < roleSlave.slavesNeeded() && SpawnQueueManager.isQueueAvailable(room))
             this.enqueueCreep(room, "slave");
@@ -13228,7 +13356,7 @@ var spawnCreeps = {
         const containers = Object.values(roomMemory.structures).filter(structure => structure.type === STRUCTURE_CONTAINER) || 0;
         if (roleCounts.slave < roleSlave.slavesNeeded() && SpawnQueueManager.isQueueAvailable(room))
             this.enqueueCreep(room, "slave");
-        if (roleCounts.hauler < roleCounts.miner - containers.length && SpawnQueueManager.isQueueAvailable(room))
+        if (roleCounts.hauler < roleCounts.miner - containers.length + 2 && SpawnQueueManager.isQueueAvailable(room))
             this.enqueueCreep(room, "hauler");
         if (roleCounts.miner < totalVacancies - 1 && SpawnQueueManager.isQueueAvailable(room))
             this.enqueueCreep(room, "miner");
@@ -13294,56 +13422,6 @@ var spawnCreeps = {
             tough: 10,
         };
         return bodyParts.reduce((cost, part) => cost + bodyPartCosts[part], 0);
-    },
-};
-
-const analyzeRoom = {
-    analyze(room) {
-        const roomMemory = Memory.rooms[room.name];
-        // Check if analysis is needed
-        const now = Game.time;
-        if (roomMemory.lastAnalyzed && now - roomMemory.lastAnalyzed < 60) {
-            console.log(`Room ${room.name} analysis skipped (recently analyzed). Next analysis in ${60 - now + roomMemory.lastAnalyzed} s.`);
-            return;
-        }
-        console.log(`Analyzing room: ${room.name}`);
-        // Ensure room memory is initialized
-        if (!Memory.rooms[room.name].initialized) {
-            RoomMemoryManager.initializeRoomMemory(room);
-        }
-        // Analyze sources
-        const sources = room.find(FIND_SOURCES);
-        sources.forEach(source => {
-            var _a;
-            const sourceMemory = (_a = roomMemory.sources[source.id]) !== null && _a !== void 0 ? _a : {
-                id: source.id,
-                vacancies: 0,
-                creeps: [],
-            };
-            // Calculate free spots around the source
-            const freeSpots = room
-                .lookAtArea(source.pos.y - 1, source.pos.x - 1, source.pos.y + 1, source.pos.x + 1, true)
-                .filter(spot => spot.type === "terrain" && spot.terrain !== "wall")
-                .map(spot => ({ x: spot.x, y: spot.y }));
-            sourceMemory.vacancies = freeSpots.length;
-            // Update memory for the source
-            roomMemory.sources[source.id] = sourceMemory;
-        });
-        // Analyze structures
-        const structures = room.find(FIND_STRUCTURES);
-        structures.forEach(structure => {
-            var _a;
-            const structureMemory = (_a = roomMemory.structures[structure.id]) !== null && _a !== void 0 ? _a : {
-                id: structure.id,
-                type: structure.structureType,
-                creeps: [],
-            };
-            // Update memory for the structure
-            roomMemory.structures[structure.id] = structureMemory;
-        });
-        // Update the lastAnalyzed timestamp
-        roomMemory.lastAnalyzed = now;
-        console.log(`Room ${room.name} analysis complete.`);
     },
 };
 

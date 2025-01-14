@@ -18,32 +18,45 @@ export default spawnCreeps = {
         const room = spawn.room;
         const creeps = Game.creeps;
 
+        const roomMemory = Memory.rooms[room.name];
+
+        // Calculate how many containers are next to sources from memory
+        let containerCount = 0;
+
+        if (roomMemory && roomMemory.structures) {
+            containerCount = Object.values(roomMemory.structures)
+                .filter(structure => structure.type === "source") // Filter for sources
+                .filter(structure => structure.containers && structure.containers.length > 0) // Filter for sources with containers
+                .reduce((total, structure) => total + structure.containers!.length, 0); // Sum the lengths of all containers lists
+        }
+
         // Calculate total vacancies
-        const totalVacancies = Object.values(Memory.rooms[room.name].sources).reduce(
-            (sum, source) => sum + (source.vacancies || 0),
-            0
-        );
+        let vacanciesCount = 0;
+
+        if (roomMemory && roomMemory.structures) {
+            vacanciesCount = Object.values(roomMemory.structures)
+                .filter(structure => structure.type === "source") // Filter for sources
+                .filter(structure => structure.vacancies && structure.vacancies > 0) // Filter for sources with vacancies
+                .reduce((total, structure) => total + structure.vacancies!, 0); // Sum the lengths of all containers lists
+        }
 
         // Count creeps by role
         const roleCounts = this.countCreepsByRole(creeps);
         const totalCreeps = Object.values(roleCounts).reduce((sum, count) => sum + count, 0);
 
-        // Handle queue capacity
-        if (!SQM.isQueueAvailable(room)) {
-            console.log(`[SpawnQueue] Queue is full in room ${room.name}.`);
-            //why do i do this?
-        }
-
-        console.log(`Having ${roleCounts.slave} slaves, should have ${roleSlave.slavesNeeded()}`);
+        const minersNeeded = vacanciesCount + containerCount;
 
         // Priority spawning logic
         if (roleCounts.miner < 1 && roleCounts.dummy < config.roles.dummy.defaultCount) {
             SQM.clearQueue(room);
             this.enqueueCreep(room, "dummy");
-        } else if (totalCreeps < 8) {
-            this.handleLowPopulationSpawning(room, roleCounts, totalVacancies);
+        // We proceed only if Queue is available
+        } else if (!SQM.isQueueAvailable(room)) {
+            console.log(`[SpawnQueue] Queue is full in room ${room.name}.`);
+        } else  if (totalCreeps < 8) {
+            this.handleLowPopulationSpawning(room, roleCounts, minersNeeded);
         } else {
-            this.handleSustainedSpawning(room, roleCounts, totalVacancies);
+            this.handleSustainedSpawning(room, roleCounts, minersNeeded);
         }
 
         // Process the spawn queue
@@ -58,7 +71,6 @@ export default spawnCreeps = {
         if (roleCounts.miner < totalVacancies - 1 && SQM.isQueueAvailable(room)) this.enqueueCreep(room, "miner");
         if (roleCounts.hauler < roleCounts.miner - containers.length && SQM.isQueueAvailable(room)) this.enqueueCreep(room, "hauler");
         if (roleCounts.slave < roleSlave.slavesNeeded() && SQM.isQueueAvailable(room)) this.enqueueCreep(room, "slave");
-
     },
 
     handleSustainedSpawning(room: Room, roleCounts: Record<string, number>, totalVacancies: number) {
@@ -67,7 +79,7 @@ export default spawnCreeps = {
             structure => structure.type === STRUCTURE_CONTAINER
         ) || 0;
         if (roleCounts.slave < roleSlave.slavesNeeded() && SQM.isQueueAvailable(room)) this.enqueueCreep(room, "slave");
-        if (roleCounts.hauler < roleCounts.miner - containers.length && SQM.isQueueAvailable(room)) this.enqueueCreep(room, "hauler");
+        if (roleCounts.hauler < roleCounts.miner - containers.length + 2 && SQM.isQueueAvailable(room)) this.enqueueCreep(room, "hauler");
         if (roleCounts.miner < totalVacancies - 1 && SQM.isQueueAvailable(room)) this.enqueueCreep(room, "miner");
     },
 

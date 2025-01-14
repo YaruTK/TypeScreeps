@@ -35,18 +35,18 @@ export default roleSlave = {
             const constructionSites = creep.room.find(FIND_CONSTRUCTION_SITES);
 
         // State transitions: picking up or supplying
-        if (creep.memory.pickingUp && creep.store.getFreeCapacity() === 0) {
-            creep.memory.pickingUp = false;
+        if (creep.memory.state === "pickingUp" && creep.store.getFreeCapacity() === 0) {
+            creep.memory.state = "working";
             creep.say("♿ Working");
         }
-        if (!creep.memory.pickingUp && creep.store.getUsedCapacity() === 0) {
-            creep.memory.pickingUp = true;
+        if (creep.memory.state !== "pickingUp" && creep.store.getUsedCapacity() === 0) {
+            creep.memory.state = "pickingUp";
             creep.say("⬆ Picking Up");
         }
 
 
         // Handle picking up energy
-        if (creep.memory.pickingUp) {
+        if (creep.memory.state === "pickingUp") {
             actions.pickupEnergy(creep);
         } else {
             // Execute actions based on the subRole
@@ -57,6 +57,7 @@ export default roleSlave = {
                         actions.repair(creep, target);
                     } else {
                         creep.say("❌ No repairs needed");
+                        creep.memory.state = "idle"
                     }
                     break;
 
@@ -66,6 +67,7 @@ export default roleSlave = {
                         actions.repair(creep, target);
                     } else {
                         creep.say("❌ No wall repairs needed");
+                        creep.memory.state = "idle"
                     }
                     break;
                 case "builder":
@@ -174,7 +176,7 @@ export default roleSlave = {
 
             // Determine structure repairer count
             if (criticalStructure > 0) {
-                structRepairs = 1; // Require 1 repairer if a critical structure exists
+                structRepairs = 2; // Require 1 repairer if a critical structure exists
             } else {
                 structRepairs = 0; // No repairer needed otherwise
             }

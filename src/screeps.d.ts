@@ -4,31 +4,30 @@ declare global {
         role: string;
         subRole?: string;
         target?: Id<Source | Structure>;
-        mining?: boolean;
-        pickingUp?: boolean;
-        working?: boolean;
+        state?: string;
         roomAssignment?: string;
         container?: string;
+        position?: {x: number, y: number},
     }
 
-    interface SourceMemory {
-        id: Id<Source>;
-        vacancies: number;
-        creeps: string[];
+    interface FlagMemory {
+        id: string;
+        assignedPositions?:{ x: number; y: number }[];
     }
 
     interface StructureMemory {
         id: Id<Structure>;
         type: string;
+        vacancies?: number;
+        containers?: Id<StructureContainer>[];
         creeps: string[];
     }
 
     interface RoomMemory {
-        sources: { [id: string]: SourceMemory };
         structures: { [id: string]: StructureMemory };
         creeps: { [id: string]: CreepMemory };
+        flags: { [id: string]: FlagMemory};
         lastAnalyzed?: number; // Timestamp of the last analysis
-        initialized: boolean;
         spawnQueue: any[];
     }
 }

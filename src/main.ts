@@ -7,8 +7,6 @@ import { RoomMemoryManager } from "memory.handler";
 import config from "./scripts/config"
 
 import spawnCreeps from "./scripts/spawn.creep";
-import analyzeRoom from "./scripts/analysis";
-
 
 import structureTower from "./structures/tower";
 
@@ -25,7 +23,9 @@ export function loop() {
 
             // Analyze room if necessary
             const lastAnalyzed = Memory.rooms[room.name].lastAnalyzed;
-            analyzeRoom.analyze(room);
+            if (!lastAnalyzed || Game.time - lastAnalyzed > config.general.analysisFrequency){
+                RoomMemoryManager.analyzeRoom(room);
+            }
 
             // Cleanup expired workers from room memory
             RoomMemoryManager.cleanupExpiredCreeps(room);

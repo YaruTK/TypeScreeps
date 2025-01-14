@@ -18,22 +18,23 @@ export default roleHauler = {
         }
 
         // State transitions: picking up or supplying
-        if (creep.memory.pickingUp && creep.store.getFreeCapacity() === 0) {
-            creep.memory.pickingUp = false;
+        if (creep.memory.state === "pickingUp" && creep.store.getFreeCapacity() === 0) {
+            creep.memory.state = "working";
             creep.say("♿ Delivering");
         }
-        if (!creep.memory.pickingUp && creep.store.getUsedCapacity() === 0) {
-            creep.memory.pickingUp = true;
+        if (creep.memory.state !== "pickingUp" && creep.store.getUsedCapacity() === 0) {
+            creep.memory.state = "pickingUp";
             creep.say("⬆ Picking Up");
         }
 
 
         // Handle picking up energy
-        if (creep.memory.pickingUp) {
+        if (creep.memory.state === "pickingUp") {
             actions.pickupEnergy(creep);
         } else {
         // Do supply
             actions.supply(creep);
+
         }
     },
 }

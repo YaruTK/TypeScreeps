@@ -35,8 +35,9 @@ export const config = {
     },
     general: {
         maxQueueLength: 2, // Maximum spawn queue length
-        repairThreshold: 0.5, // Structures below this percentage will be repaired
+        repairThreshold: 0.7, // Structures below this percentage will be repaired
         repairWalls: false,
+        analysisFrequency: 30,
     },
     colors: {
         paths: {

@@ -12,13 +12,13 @@ export default roleDummy = {
         // Ensure the creep has a target source assigned
         if (!creep.memory.target) {
             const roomMemory = Memory.rooms[creep.room.name];
-            const availableSource = Object.values(roomMemory.sources).find(source => {
-                return source.vacancies > source.creeps.length;
+            const availableSource = Object.values(roomMemory.structures).find(structure => {
+                return structure.vacancies! > structure.creeps.length;
             });
 
             if (availableSource) {
                 creep.memory.target = availableSource.id;
-                roomMemory.sources[availableSource.id].creeps.push(creep.name);
+                roomMemory.structures[availableSource.id].creeps.push(creep.name);
                 console.log(`[${creep.name}] Assigned to source: ${availableSource.id}`);
             } else {
                 console.log(`[${creep.name}] No available sources with vacancies.`);
@@ -27,17 +27,17 @@ export default roleDummy = {
         }
 
         // Check harvesting state
-        if (!creep.memory.mining && creep.store[RESOURCE_ENERGY] === 0) {
-            creep.memory.mining = true;
+        if (creep.memory.state !== "mining" && creep.store[RESOURCE_ENERGY] === 0) {
+            creep.memory.state = "mining";
             creep.say("⛏ Harvesting");
         }
 
-        if (creep.memory.mining && creep.store.getFreeCapacity() === 0) {
-            creep.memory.mining = false;
+        if (creep.memory.state === "mining" && creep.store.getFreeCapacity() === 0) {
+            creep.memory.state = "working";
             creep.say("♿ Delivering");
         }
 
-        if (creep.memory.mining) {
+        if (creep.memory.state === "mining") {
             // Mining logic
             const target = Game.getObjectById(creep.memory.target as Id<Source>);
             if (!target) {
